@@ -4,3 +4,5 @@ public/pdf.worker.min.mjs
 package-lock.json
 test-results
 playwright-report
+
+public/ocr/

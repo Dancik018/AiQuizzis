@@ -21,7 +21,7 @@ One Next.js App Router application. No Python server, Redis, permanent worker or
 2. Deterministic parsing filters language and duplicates without a global question-count cap. Color is secondary metadata; blue Romanian is retained.
 3. At most 10 questions per `/api/solve` request; each response is saved before advancing. Refresh preserves work; **Reîncearcă loturile rămase** continues.
 4. Optional **Caută întrebări suplimentare** sends bounded overlapping chunks to `/api/analyze` for unusual layouts, preserving existing questions/options. Each chunk saves its cursor. This action makes additional paid requests.
-5. Scanned pages are rendered locally and sent individually to `/api/ocr` (Google Cloud Vision) when configured.
+5. Scanned pages are rendered locally and recognized by Tesseract.js in a browser Web Worker, using Romanian and English models. OCR is free and needs no API key. Engine and models are served by this application and cached locally; scanned images never leave the browser.
 6. Quiz snapshots retain questions, orders, answers, flags/skips, position and timestamps. Editing source documents does not rewrite quiz history.
 
 Modules: `src/lib/extract.ts`, `detection.ts`, `processing.ts`, `ai.ts`, `quiz.ts`, `storage.ts`. `AIProvider` isolates solving/evaluation for future providers.
@@ -42,13 +42,12 @@ Windows: `Copy-Item .env.example .env.local`. Never commit real keys.
 
 Set variables in the **existing Vercel project**, Settings → Environment Variables (Production, optionally Preview):
 
-| Variable                | Meaning                                                                             |
-| ----------------------- | ----------------------------------------------------------------------------------- |
-| `AI_PROVIDER`           | `openai` (default)                                                                  |
-| `OPENAI_API_KEY`        | Server-only key for automatic answers, structure analysis and semantic evaluation   |
-| `AI_MODEL`              | Responses structured-output model available to your project; default `gpt-4.1-mini` |
-| `AI_BATCH_SIZE`         | 1–10, default 10                                                                    |
-| `GOOGLE_VISION_API_KEY` | Optional key with Google Cloud Vision enabled, for scanned-page OCR                 |
+| Variable         | Meaning                                                                             |
+| ---------------- | ----------------------------------------------------------------------------------- |
+| `AI_PROVIDER`    | `openai` (default)                                                                  |
+| `OPENAI_API_KEY` | Server-only key for automatic answers, structure analysis and semantic evaluation   |
+| `AI_MODEL`       | Responses structured-output model available to your project; default `gpt-4.1-mini` |
+| `AI_BATCH_SIZE`  | 1–10, default 10                                                                    |
 
 Never use `NEXT_PUBLIC_` for credentials. Building and manual/source-key review require no key. Missing services return clear Romanian messages. Live requests require provider accounts and may incur charges.
 
@@ -88,7 +87,7 @@ npm run test:e2e
 
 `tests/fixtures.ts` generates actual PDF/DOCX containing **450 Romanian questions**, 30 English questions, an exact duplicate, headers/footers, mixed numbering, multiple choice/open questions and colored text. DOCX includes tables/formatting. These are synthetic test fixtures, never fake application results.
 
-Unit tests check counts, options, Romanian/English/Russian/French handling, diacritics, 10/100/450-question configurations, order/source invariants and scores. Browser tests exercise uploads, pagination, saved-file reuse, exam feedback hiding, refresh/resume, practice/open answers, results/retry, corrupt files, missing OCR, mobile layout and themes. Batch-recovery tests mock the provider explicitly; they do not verify live answer accuracy.
+Unit tests check counts, options, Romanian/English/Russian/French handling, diacritics, 10/100/450-question configurations, order/source invariants and scores. Browser tests exercise uploads, pagination, saved-file reuse, exam feedback hiding, refresh/resume, practice/open answers, results/retry, corrupt files, real two-page scanned PDF OCR, mobile layout and themes. Batch-recovery tests mock the provider explicitly; they do not verify live answer accuracy.
 
 ## Supported documents / known limitations
 
@@ -99,9 +98,13 @@ Unit tests check counts, options, Romanian/English/Russian/French handling, diac
 - Multiple-choice supports exactly one correct answer. Multiple-correct/ambiguous questions require adaptation or open-answer format.
 - Open answers use normalized equality, then semantic AI. Unavailable/low-confidence grading remains pending; practice/results allow manual assessment. Pending scores are provisional.
 - Data is browser/device-local. Clearing site data removes it; no sync or remote backup. Private browsing/quota restrictions can prevent saving; errors are displayed.
-- Files remain local, but AI sends question text to OpenAI and OCR sends scanned-page images to Google. OpenAI requests use `store: false`.
+- Files remain local, but AI sends question text to OpenAI while OCR stays entirely in the browser. OpenAI requests use `store: false`.
 - Exam mode hides UI feedback; it is personal practice, not secure proctoring. Answers exist in local quiz data.
 
 ## Security
 
 Request schemas, body bounds, same-origin checks, structured AI validation, unique-ID reconciliation, timeouts and safe errors protect routes. DOCX rejects DTD/entities and caps decompression. Uploaded content/PDF actions are never executed. No user-controlled URLs are fetched server-side. Keys remain server-only and never enter prompts. Environment files, private data, caches and build artifacts are ignored.
+
+### Free scanned PDF OCR
+
+Tesseract.js and its language models are copied from locked npm dependencies during build. The first scanned upload downloads the engine and models; subsequent use can reuse browser caches. OCR runs sequentially with one worker per document and actual recognition progress. Slow devices and hundreds of scanned pages can take substantial time. Blurry images, handwriting and complicated layouts require manual review. OpenAI answer generation is separate and still requires a server-side API key and API billing.

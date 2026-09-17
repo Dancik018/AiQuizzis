@@ -5,13 +5,11 @@ test('real DOCX extraction: 450 questions, review, existing-file quiz, exam, ref
   page,
 }) => {
   await page.goto('/');
-  await page
-    .locator('input[type=file]')
-    .setInputFiles({
-      name: 'acceptance-450.docx',
-      mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      buffer: docxFixture(),
-    });
+  await page.locator('input[type=file]').setInputFiles({
+    name: 'acceptance-450.docx',
+    mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    buffer: docxFixture(),
+  });
   await expect(page.getByText('450 pregătite', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Vezi întrebările' }).click();
   await expect(page.locator('.review-row')).toHaveCount(15);
@@ -45,13 +43,11 @@ test('real DOCX extraction: 450 questions, review, existing-file quiz, exam, ref
 
 test('real large colored PDF extracts every page and preserves 450 questions', async ({ page }) => {
   await page.goto('/');
-  await page
-    .locator('input[type=file]')
-    .setInputFiles({
-      name: 'acceptance-450.pdf',
-      mimeType: 'application/pdf',
-      buffer: await pdfFixture(),
-    });
+  await page.locator('input[type=file]').setInputFiles({
+    name: 'acceptance-450.pdf',
+    mimeType: 'application/pdf',
+    buffer: await pdfFixture(),
+  });
   await expect(page.getByText('450 pregătite', { exact: true })).toBeVisible({ timeout: 90000 });
   await page.getByRole('button', { name: 'Quiz Rapid', exact: true }).click();
   await expect(page.getByText('ÎNTREBAREA 1 / 450', { exact: true })).toBeVisible();
@@ -64,12 +60,13 @@ test('real large colored PDF extracts every page and preserves 450 questions', a
   await expect(page.locator('.feedback')).toContainText('Corect!');
 });
 
-test('missing AI/OCR and invalid requests return safe Romanian errors', async ({ request }) => {
+test('browser OCR availability and invalid requests return safe Romanian errors', async ({
+  request,
+}) => {
   const invalid = await request.post('/api/solve', { data: { questions: [] } });
   expect(invalid.status()).toBe(400);
-  const ocr = await request.post('/api/ocr', { data: { image: 'AAAAAAAAAAAAAAAAAAAA' } });
-  expect(ocr.status()).toBe(503);
-  expect((await ocr.json()).error).toContain('OCR nu este configurat');
+  const config = await request.get('/api/config');
+  expect(await config.json()).toMatchObject({ ocr: true, ocrProvider: 'browser' });
   const foreign = await request.post('/api/evaluate', {
     headers: { origin: 'https://attacker.example' },
     data: { question: 'Test', expected: 'Test', answer: 'Test' },
@@ -126,13 +123,11 @@ test('AI batch failure retains solved questions and retry requests only unfinish
     { text: 'B. 2', page: 1 },
   ]).flat();
   await page.goto('/');
-  await page
-    .locator('input[type=file]')
-    .setInputFiles({
-      name: 'batch-retry.docx',
-      mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      buffer: docxFixture(lines),
-    });
+  await page.locator('input[type=file]').setInputFiles({
+    name: 'batch-retry.docx',
+    mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    buffer: docxFixture(lines),
+  });
   await expect(page.getByText('10 pregătite', { exact: true })).toBeVisible();
   await expect(page.getByText('Lot eșuat pentru testul de recuperare.')).toBeVisible();
   await page.reload();
@@ -149,13 +144,11 @@ test('AI batch failure retains solved questions and retry requests only unfinish
 
 test('corrupt PDF reports an actionable error without adding fake documents', async ({ page }) => {
   await page.goto('/');
-  await page
-    .locator('input[type=file]')
-    .setInputFiles({
-      name: 'broken.pdf',
-      mimeType: 'application/pdf',
-      buffer: Buffer.from('not a pdf'),
-    });
+  await page.locator('input[type=file]').setInputFiles({
+    name: 'broken.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from('not a pdf'),
+  });
   await expect(page.locator('.global-error')).toContainText('Fișierul nu este un PDF valid');
   await expect(page.locator('.document-card')).toHaveCount(0);
 });
@@ -164,13 +157,11 @@ test('Word automatic lists, diacritics, blue Romanian and manual editor persist 
   page,
 }) => {
   await page.goto('/');
-  await page
-    .locator('input[type=file]')
-    .setInputFiles({
-      name: 'lists.docx',
-      mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      buffer: numberedDocxFixture(),
-    });
+  await page.locator('input[type=file]').setInputFiles({
+    name: 'lists.docx',
+    mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    buffer: numberedDocxFixture(),
+  });
   await expect(page.getByText('2 pregătite', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Vezi întrebările' }).click();
   await page.getByRole('button', { name: 'Editează întrebarea 1', exact: true }).click();

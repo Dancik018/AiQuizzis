@@ -16,3 +16,5 @@ test-results/
 playwright-report/
 work/
 public/pdf.worker.min.mjs
+
+public/ocr/

@@ -46,15 +46,6 @@ export function apiError(error: unknown) {
       },
       { status: 503 },
     );
-  if (code === 'OCR_MISSING')
-    return Response.json(
-      {
-        error:
-          'PDF scanat: OCR nu este configurat. Administratorul trebuie să adauge GOOGLE_VISION_API_KEY sau poți încărca un PDF cu text selectabil.',
-        code,
-      },
-      { status: 503 },
-    );
   if (code === 'RATE_LIMIT' || status === 429)
     return Response.json(
       { error: 'Prea multe cereri. Așteaptă un minut și reîncearcă lotul.', code: 'RATE_LIMIT' },

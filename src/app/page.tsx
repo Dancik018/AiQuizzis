@@ -493,7 +493,7 @@ export default function Home() {
                 <div className="upload-meta">
                   <span>PDF</span>
                   <span>DOCX</span>
-                  <i /> Maximum 30 MB · Fără limită arbitrară de întrebări
+                  <i /> Maximum 30 MB · OCR gratuit pentru PDF scanat
                 </div>
                 {progress && !processingId && (
                   <div className="extraction-progress" role="status">

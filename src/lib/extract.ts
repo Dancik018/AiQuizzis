@@ -1,5 +1,6 @@
 import { unzipSync, strFromU8 } from 'fflate';
 import type { TextLine } from './model';
+import { createBrowserOcr } from './ocr';
 
 export const MAX_FILE_SIZE = 30 * 1024 * 1024;
 export function validateFile(file: Pick<File, 'name' | 'type' | 'size'>) {
@@ -129,6 +130,7 @@ export async function extractFile(
   const pdfjs = await import('pdfjs-dist');
   pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
   const task = pdfjs.getDocument({ data: bytes, useSystemFonts: true });
+  const ocr = createBrowserOcr();
   try {
     const pdf = await task.promise;
     const lines: TextLine[] = [];
@@ -146,27 +148,33 @@ export async function extractFile(
           .replace(/\s/g, '').length < 15
       ) {
         progress({ stage: `OCR — pagina ${n}`, completed: n - 1, total: pdf.numPages });
+        const original = page.getViewport({ scale: 1 });
         const viewport = page.getViewport({
-          scale: Math.min(2, 2000 / page.getViewport({ scale: 1 }).width),
+          scale: Math.min(2, 2400 / Math.max(original.width, original.height)),
         });
         const canvas = document.createElement('canvas');
         canvas.width = viewport.width;
         canvas.height = viewport.height;
-        await page.render({ canvas, viewport }).promise;
-        const response = await fetch('/api/ocr', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ image: canvas.toDataURL('image/jpeg', 0.82).split(',')[1] }),
-        });
-        canvas.width = 0;
-        canvas.height = 0;
-        const result = await response.json();
-        if (!response.ok) throw new Error(result.error || 'OCR indisponibil.');
-        lines.push(
-          ...String(result.text)
-            .split('\n')
-            .map((text) => ({ text, page: n })),
-        );
+        try {
+          await page.render({ canvas, viewport }).promise;
+          const text = await ocr.recognize(canvas, (stage, fraction) =>
+            progress({
+              stage:
+                stage +
+                ' — pagina ' +
+                n +
+                '/' +
+                pdf.numPages +
+                (fraction > 0 ? ' · ' + Math.round(fraction * 100) + '%' : ''),
+              completed: n - 1,
+              total: pdf.numPages,
+            }),
+          );
+          lines.push(...text.split('\n').map((text) => ({ text, page: n })));
+        } finally {
+          canvas.width = 0;
+          canvas.height = 0;
+        }
       } else {
         const operators = await page.getOperatorList();
         const colorByText = new Map<string, string>();
@@ -231,6 +239,7 @@ export async function extractFile(
       throw new Error('PDF-ul este deteriorat sau invalid.');
     throw error;
   } finally {
+    await ocr.dispose();
     await task.destroy();
   }
 }
