@@ -1,5 +1,40 @@
 {
   "dependencies": {
-    "vercel": "^59.20.0"
+    "fflate": "^0.8.3",
+    "idb": "^8.0.3",
+    "lucide-react": "^1.47.0",
+    "next": "^16.3.5",
+    "openai": "^7.17.0",
+    "pdfjs-dist": "^6.3.289",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^22.20.3",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^16.3.5",
+    "pdf-lib": "^1.17.1",
+    "prettier": "^3.9.7",
+    "tsx": "^4.23.13",
+    "typescript": "^6.0.3"
+  },
+  "name": "aiquiz",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "node scripts/prepare.mjs && next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "test": "tsx --test tests/*.test.ts",
+    "test:e2e": "playwright test",
+    "predev": "node scripts/prepare.mjs"
+  },
+  "engines": {
+    "node": "24.x"
   }
 }

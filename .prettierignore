@@ -1,0 +1,6 @@
+node_modules
+.next
+public/pdf.worker.min.mjs
+package-lock.json
+test-results
+playwright-report

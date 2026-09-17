@@ -4,3 +4,15 @@ node_modules/
 .env.local
 __pycache__/
 *.pyc
+.next/
+.env.*
+!.env.example
+dist/
+build/
+*.log
+.DS_Store
+*.tsbuildinfo
+test-results/
+playwright-report/
+work/
+public/pdf.worker.min.mjs
