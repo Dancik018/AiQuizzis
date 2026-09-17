@@ -65,7 +65,7 @@ npm start
 
 Build copies the matching PDF.js worker to `public/` (generated, not committed). API routes use Node.js. Provider routes declare a 60-second duration and bounded upstream timeouts; verify your Vercel plan limits.
 
-Existing Vercel settings: **Next.js** preset, repository root, build `npm run build`, default Next.js output. No root Python entrypoints, `vercel.json`, manual upload or Vercel CLI dependency are needed. The unused CLI dependency was removed; Git deployment integration is unchanged.
+`vercel.json` explicitly sets the **Next.js** framework, `npm run build` and `.next` output. This is necessary because the existing project's previous static deployment settings served only `public/` assets and returned 404 for pages/API routes. Keep the repository root as the project root. No Python entrypoints, manual uploads or Vercel CLI dependency are needed. Git deployment integration is unchanged.
 
 ```sh
 git status
