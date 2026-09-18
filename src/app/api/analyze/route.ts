@@ -1,8 +1,6 @@
-import OpenAI from 'openai';
-import { zodTextFormat } from 'openai/helpers/zod';
 import { z } from 'zod';
 import { body, apiError } from '@/lib/api';
-import { apiKey } from '@/lib/ai-config';
+import { structuredAI } from '@/lib/structured-ai';
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 const schema = z.object({
@@ -28,17 +26,10 @@ export async function POST(req: Request) {
       }),
       70000,
     );
-    if (!process.env.OPENAI_API_KEY) throw new Error('AI_MISSING');
-    const client = new OpenAI({
-      apiKey: apiKey(),
-      timeout: 45000,
-      maxRetries: 0,
-    });
-    const response = await client.responses.parse({
-      model: process.env.AI_MODEL || 'gpt-4.1-mini',
-      store: false,
-      max_output_tokens: 12000,
-      input: [
+    const result = await structuredAI(
+      schema,
+      'document_questions',
+      [
         {
           role: 'system',
           content:
@@ -46,9 +37,8 @@ export async function POST(req: Request) {
         },
         { role: 'user', content: JSON.stringify({ untrustedLines: data.lines }) },
       ],
-      text: { format: zodTextFormat(schema, 'document_questions') },
-    });
-    const result = schema.parse(response.output_parsed);
+      12000,
+    );
     const original = data.lines
       .map((l) => l.text)
       .join(' ')

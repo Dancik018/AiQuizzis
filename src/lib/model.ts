@@ -45,6 +45,7 @@ export type DocumentSet = {
   duplicates: number;
   status: 'extracted' | 'processing' | 'ready' | 'partial';
   error?: string;
+  retryAt?: number;
   analysisCursor?: number;
   analysisComplete?: boolean;
 };

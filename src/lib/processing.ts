@@ -1,6 +1,16 @@
 import { needsAnalysis, normalize, uid, type DocumentSet, type Question } from './model';
 import { putDocument } from './storage';
 
+class BatchError extends Error {
+  constructor(
+    message: string,
+    public code: string,
+    public retryAfter = 60,
+  ) {
+    super(message);
+  }
+}
+
 export async function solveQuestions(
   questions: Question[],
   generateOptions = false,
@@ -11,8 +21,14 @@ export async function solveQuestions(
     body: JSON.stringify({ questions, generateOptions }),
     signal: AbortSignal.timeout(65000),
   });
-  const result = await response.json();
-  if (!response.ok) throw new Error(result.error || 'Rezolvarea lotului a eșuat.');
+  const result = await response.json().catch(() => null);
+  if (!response.ok)
+    throw new BatchError(
+      result?.error || 'Rezolvarea lotului a eșuat. Progresul este salvat.',
+      result?.code || 'PROVIDER_ERROR',
+      Number(response.headers.get('retry-after') || result?.retryAfter) || 60,
+    );
+  if (!result?.questions) throw new Error('Lot incomplet. Reîncearcă.');
   return questions.map((q) => {
     const answer = result.questions.find((a: { id: string }) => a.id === q.id);
     if (!answer) throw new Error('Lot incomplet. Reîncearcă.');
@@ -38,13 +54,38 @@ export async function processDocument(
   generateOptions: boolean,
   update: (doc: DocumentSet) => void,
   shouldStop: () => boolean,
+  requestIntervalMs = 0,
 ) {
   let current: DocumentSet = { ...doc, status: 'processing', error: undefined };
+  const waitUntil = async (until: number, retry: boolean) => {
+    current = { ...current, retryAt: until };
+    await putDocument(current);
+    let lastSecond = -1;
+    while (Date.now() < until && !shouldStop()) {
+      const seconds = Math.ceil((until - Date.now()) / 1000);
+      if (seconds !== lastSecond) {
+        lastSecond = seconds;
+        update({
+          ...current,
+          error: `${retry ? 'Limită temporară AI. Reîncercare automată' : 'Următorul lot'} în ${seconds} secunde. Progresul este salvat.`,
+        });
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    if (shouldStop()) return false;
+    current = { ...current, retryAt: undefined, error: undefined };
+    await putDocument(current);
+    update(current);
+    return true;
+  };
   const pending = current.questions.filter(needsAnalysis);
   await putDocument(current);
   update(current);
+  let nextRequest = current.retryAt || 0;
+  let retries = 0;
   for (let i = 0; i < pending.length;) {
     if (shouldStop()) break;
+    if (nextRequest > Date.now() && !(await waitUntil(nextRequest, retries > 0))) break;
     const batch: Question[] = [];
     let bytes = 0;
     while (
@@ -58,6 +99,7 @@ export async function processDocument(
       bytes += size;
     }
     try {
+      nextRequest = Date.now() + Math.min(60000, Math.max(0, requestIntervalMs));
       const solved = await solveQuestions(batch, generateOptions);
       const byId = new Map(solved.map((q) => [q.id, q]));
       current = {
@@ -74,11 +116,33 @@ export async function processDocument(
       await putDocument(current);
       update(current);
       i += batch.length;
+      retries = 0;
     } catch (error) {
+      if (
+        error instanceof BatchError &&
+        error.code === 'RATE_LIMIT' &&
+        retries < 3 &&
+        error.retryAfter <= 120
+      ) {
+        retries++;
+        nextRequest = Date.now() + Math.max(error.retryAfter, 2 ** retries) * 1000;
+        current = { ...current, retryAt: nextRequest };
+        await putDocument(current);
+        continue;
+      }
       current = {
         ...current,
         status: 'partial',
-        error: error instanceof Error ? error.message : 'Lot eșuat.',
+        retryAt:
+          error instanceof BatchError && error.code === 'RATE_LIMIT'
+            ? Date.now() + error.retryAfter * 1000
+            : undefined,
+        error:
+          error instanceof BatchError && error.code === 'RATE_LIMIT'
+            ? 'Limita AI persistă. Verifică și cota zilnică în contul furnizorului. Progresul este salvat; reîncearcă mai târziu.'
+            : error instanceof Error
+              ? error.message
+              : 'Lot eșuat.',
       };
       await putDocument(current);
       update(current);

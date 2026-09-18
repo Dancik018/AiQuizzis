@@ -61,7 +61,13 @@ export default function Home() {
   const [processingId, setProcessingId] = useState('');
   const [configQuestions, setConfigQuestions] = useState<Question[] | null>(null);
   const [config, setConfig] = useState(defaultConfig);
-  const [services, setServices] = useState({ ai: false, ocr: false, batchSize: 10 });
+  const [services, setServices] = useState({
+    ai: false,
+    ocr: false,
+    batchSize: 10,
+    provider: 'openai',
+    requestIntervalMs: 2000,
+  });
   const [theme, setTheme] = useState('system');
   const [generateOptions, setGenerateOptions] = useState(false);
   const input = useRef<HTMLInputElement>(null);
@@ -132,6 +138,7 @@ export default function Home() {
         generateOptions,
         (changed) => setDocuments((old) => old.map((d) => (d.id === changed.id ? changed : d))),
         () => stop.current,
+        services.requestIntervalMs,
       );
     } catch {
       setError('Progresul nu a putut fi salvat. Eliberează spațiu în browser și reîncearcă.');
@@ -527,10 +534,18 @@ export default function Home() {
                   <Sparkles size={18} />
                   <p>
                     <b>Verificare manuală disponibilă.</b> Rezolvarea automată necesită configurarea
-                    cheii OpenAI în Vercel. Extrage întrebările, apoi completează răspunsurile în
-                    editor.
+                    unei chei Gemini sau OpenAI în Vercel. Extrage întrebările, apoi completează
+                    răspunsurile în editor.
                   </p>
                 </div>
+              )}
+              {services.ai && (
+                <p className="analysis-status">
+                  Furnizor AI: {services.provider === 'gemini' ? 'Google Gemini' : 'OpenAI'}.
+                  Limitele furnizorului se aplică; loturile sunt procesate pe rând.{' '}
+                  {services.provider === 'gemini' &&
+                    'Pe planul gratuit, Google poate folosi conținutul trimis pentru îmbunătățirea produselor.'}
+                </p>
               )}
               <div className="section-heading library-heading">
                 <div>
