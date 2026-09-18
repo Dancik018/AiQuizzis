@@ -120,7 +120,7 @@ Create a key at https://aistudio.google.com/apikey and enter it directly in the 
 ```env
 AI_PROVIDER=gemini
 GEMINI_API_KEY=your-key-entered-only-in-vercel
-GEMINI_MODEL=gemini-2.5-flash
+GEMINI_MODEL=gemini-3.5-flash
 ```
 
 Redeploy after changing variables. Gemini uses GEMINI_MODEL independently of the existing OpenAI AI_MODEL. No automatic provider fallback occurs, so requests are not unexpectedly sent to another provider or paid account. If AI_PROVIDER is absent, a configured Gemini key selects Gemini; otherwise OpenAI remains the default.

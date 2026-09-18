@@ -27,7 +27,7 @@ export async function structuredAI<T>(
     if (!key) throw new Error('GEMINI_MISSING');
     // Auth keys can contain periods (AQ.); let Google validate the credential.
     if (!/^[\x21-\x7e]+$/.test(key) || /["'\\]/.test(key)) throw new Error('GEMINI_KEY_FORMAT');
-    const model = process.env.GEMINI_MODEL?.trim() || 'gemini-2.5-flash';
+    const model = process.env.GEMINI_MODEL?.trim() || 'gemini-3.5-flash';
     if (!/^[A-Za-z0-9._-]+$/.test(model)) throw new Error('AI_MODEL_INVALID');
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
@@ -47,7 +47,11 @@ export async function structuredAI<T>(
             responseJsonSchema: z.toJSONSchema(schema),
             // Reserve output space for the default model's internal reasoning.
             maxOutputTokens: maxTokens + 2048,
-            ...(model === 'gemini-2.5-flash' ? { thinkingConfig: { thinkingBudget: 1024 } } : {}),
+            ...(model.startsWith('gemini-3.')
+              ? { thinkingConfig: { thinkingLevel: 'LOW' } }
+              : model === 'gemini-2.5-flash'
+                ? { thinkingConfig: { thinkingBudget: 1024 } }
+                : {}),
           },
         }),
       },
