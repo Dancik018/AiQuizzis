@@ -25,7 +25,8 @@ export async function structuredAI<T>(
   } else {
     const key = process.env.GEMINI_API_KEY?.trim();
     if (!key) throw new Error('GEMINI_MISSING');
-    if (!/^[A-Za-z0-9_-]+$/.test(key)) throw new Error('GEMINI_KEY_FORMAT');
+    // Auth keys can contain periods (AQ.); let Google validate the credential.
+    if (!/^[\x21-\x7e]+$/.test(key) || /["'\\]/.test(key)) throw new Error('GEMINI_KEY_FORMAT');
     const model = process.env.GEMINI_MODEL?.trim() || 'gemini-2.5-flash';
     if (!/^[A-Za-z0-9._-]+$/.test(model)) throw new Error('AI_MODEL_INVALID');
     const response = await fetch(

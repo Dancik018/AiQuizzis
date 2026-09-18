@@ -11,12 +11,12 @@ test('Gemini transport uses server-side headers and validates output, identities
   const oldProvider = process.env.AI_PROVIDER,
     oldKey = process.env.GEMINI_API_KEY;
   process.env.AI_PROVIDER = 'gemini';
-  process.env.GEMINI_API_KEY = 'test-key-not-real';
+  process.env.GEMINI_API_KEY = 'AQ.test-key-not-real';
   let result: unknown = { answer: '2' };
   globalThis.fetch = async (url, init) => {
     assert.match(String(url), /^https:\/\/generativelanguage.googleapis.com\/v1beta\/models\//);
     assert.ok(!String(url).includes('test-key'));
-    assert.equal((init?.headers as Record<string, string>)['x-goog-api-key'], 'test-key-not-real');
+    assert.equal((init?.headers as Record<string, string>)['x-goog-api-key'], 'AQ.test-key-not-real');
     const body = JSON.parse(String(init?.body));
     assert.equal(body.generationConfig.responseMimeType, 'application/json');
     assert.ok(body.generationConfig.responseJsonSchema);
