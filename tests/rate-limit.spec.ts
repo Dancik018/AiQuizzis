@@ -31,7 +31,7 @@ test('rate-limit wait can be stopped and its deadline survives refresh', async (
   await expect(page.getByRole('button', { name: 'Reîncearcă loturile rămase' })).toBeEnabled();
   await page.reload();
   await page.getByRole('button', { name: 'Reîncearcă loturile rămase' }).click();
-  await expect(page.getByText(/Următorul lot în/)).toBeVisible();
+  await expect(page.getByText(/Următorul lot/)).toBeVisible();
   expect(calls).toBe(1);
   await page.getByRole('button', { name: 'Oprește după lotul curent' }).click();
 });
@@ -94,7 +94,7 @@ test('daily quota stops without retrying or losing the saved document', async ({
   });
   await page.goto('/');
   await page.locator('input[type=file]').setInputFiles(document);
-  await expect(page.getByText('Cota zilnică este epuizată.', { exact: true })).toBeVisible();
+  await expect(page.getByText(/Toți furnizorii configurați sunt indisponibili/)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Reîncearcă loturile rămase' })).toBeEnabled();
   await page.reload();
   await expect(page.getByText('retry.docx', { exact: true })).toBeVisible();

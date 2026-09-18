@@ -35,6 +35,7 @@ import { detectQuestions, combineQuestions } from '@/lib/detection';
 import { createQuiz, results } from '@/lib/quiz';
 import { processDocument, analyzeStructure } from '@/lib/processing';
 import type { ExtractionProgress } from '@/lib/extract';
+import type { SolverProfile } from '@/lib/batching';
 const QuestionReview = dynamic(() => import('@/components/QuestionReview'));
 const QuizPlayer = dynamic(() => import('@/components/QuizPlayer'));
 const defaultConfig: QuizConfig = {
@@ -64,7 +65,8 @@ export default function Home() {
   const [services, setServices] = useState({
     ai: false,
     ocr: false,
-    batchSize: 10,
+    batchSize: 40,
+    providers: [] as SolverProfile[],
     provider: 'openai',
     requestIntervalMs: 2000,
   });
@@ -139,6 +141,7 @@ export default function Home() {
         (changed) => setDocuments((old) => old.map((d) => (d.id === changed.id ? changed : d))),
         () => stop.current,
         services.requestIntervalMs,
+        services.providers,
       );
     } catch {
       setError('Progresul nu a putut fi salvat. Eliberează spațiu în browser și reîncearcă.');
@@ -534,15 +537,20 @@ export default function Home() {
                   <Sparkles size={18} />
                   <p>
                     <b>Verificare manuală disponibilă.</b> Rezolvarea automată necesită configurarea
-                    unei chei Gemini sau OpenAI în Vercel. Extrage întrebările, apoi completează
-                    răspunsurile în editor.
+                    unei chei Groq, Gemini sau OpenAI în Vercel. Extrage întrebările, apoi
+                    completează răspunsurile în editor.
                   </p>
                 </div>
               )}
               {services.ai && (
                 <p className="analysis-status">
-                  Furnizor AI: {services.provider === 'gemini' ? 'Google Gemini' : 'OpenAI'}.
-                  Limitele furnizorului se aplică; loturile sunt procesate pe rând.{' '}
+                  Furnizor AI:{' '}
+                  {services.provider === 'groq'
+                    ? 'Groq'
+                    : services.provider === 'gemini'
+                      ? 'Google Gemini'
+                      : 'OpenAI'}
+                  . Limitele furnizorului se aplică; loturile sunt procesate pe rând.{' '}
                   {services.provider === 'gemini' &&
                     'Pe planul gratuit, Google poate folosi conținutul trimis pentru îmbunătățirea produselor.'}
                 </p>
@@ -574,7 +582,9 @@ export default function Home() {
               ) : (
                 <div className="documents">
                   {documents.map((doc) => {
-                    const solved = doc.questions.filter((q) => !needsAnalysis(q)).length;
+                    const solved = doc.questions.filter(
+                      (q) => q.solved || !needsAnalysis(q) || q.solveError,
+                    ).length;
                     const accepted = doc.questions.filter(ready).length;
                     return (
                       <article className="document-card" key={doc.id}>
@@ -643,7 +653,8 @@ export default function Home() {
                             <X size={17} />
                           </button>
                         </div>
-                        {(processingId === doc.id ||
+                        {(doc.processing ||
+                          processingId === doc.id ||
                           doc.status === 'partial' ||
                           doc.status === 'processing') && (
                           <div className="batch-progress" role="status">
@@ -654,6 +665,25 @@ export default function Home() {
                               </b>
                             </div>
                             <progress value={solved} max={Math.max(1, doc.questions.length)} />
+                            {doc.processing && (
+                              <p className="analysis-status">
+                                {Math.round((solved / Math.max(1, doc.questions.length)) * 100)}%
+                                încercate · AI: {doc.processing.provider} · Lot curent:{' '}
+                                {doc.processing.batchSize} întrebări
+                                <br />
+                                Timp scurs: {Math.floor(doc.processing.elapsedMs / 60000)}:
+                                {String(Math.floor(doc.processing.elapsedMs / 1000) % 60).padStart(
+                                  2,
+                                  '0',
+                                )}
+                                {' · '}Timp estimat rămas:{' '}
+                                {doc.processing.workDone > 0
+                                  ? `~${Math.ceil(((doc.questions.length - solved) * doc.processing.elapsedMs) / doc.processing.workDone / 60000)} min`
+                                  : 'se calculează după primul lot'}
+                                {doc.processing.failed > 0 &&
+                                  ` · ${doc.processing.failed} nereușite, de verificat manual`}
+                              </p>
+                            )}
                             {processingId === doc.id && (
                               <button
                                 className="text-button"

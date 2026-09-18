@@ -5,21 +5,37 @@ export function apiKey() {
   return key;
 }
 
-export function aiProviderName(): 'openai' | 'gemini' {
+export type ProviderName = 'groq' | 'gemini' | 'openai';
+export function aiProviderName(): ProviderName {
   const name =
-    process.env.AI_PROVIDER?.trim() || (process.env.GEMINI_API_KEY ? 'gemini' : 'openai');
-  if (name !== 'openai' && name !== 'gemini') throw new Error('AI_PROVIDER_INVALID');
+    process.env.AI_PROVIDER?.trim() ||
+    (process.env.GROQ_API_KEY ? 'groq' : process.env.GEMINI_API_KEY ? 'gemini' : 'openai');
+  if (name !== 'openai' && name !== 'gemini' && name !== 'groq')
+    throw new Error('AI_PROVIDER_INVALID');
   return name;
 }
 
 export function aiConfigured() {
   try {
     return Boolean(
-      aiProviderName() === 'gemini'
-        ? process.env.GEMINI_API_KEY?.trim()
-        : process.env.OPENAI_API_KEY?.trim(),
+      aiProviderName() === 'groq'
+        ? process.env.GROQ_API_KEY?.trim()
+        : aiProviderName() === 'gemini'
+          ? process.env.GEMINI_API_KEY?.trim()
+          : process.env.OPENAI_API_KEY?.trim(),
     );
   } catch {
     return false;
   }
+}
+
+export function availableProviders(): ProviderName[] {
+  const primary = aiProviderName();
+  const enabled = (name: ProviderName) =>
+    Boolean(
+      process.env[
+        name === 'groq' ? 'GROQ_API_KEY' : name === 'gemini' ? 'GEMINI_API_KEY' : 'OPENAI_API_KEY'
+      ]?.trim(),
+    );
+  return [...new Set([primary, ...(['groq', 'gemini'] as ProviderName[])])].filter(enabled);
 }

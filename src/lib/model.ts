@@ -19,6 +19,7 @@ export const questionSchema = z.object({
   source: z.string().max(300),
   color: z.string().max(100).optional(),
   possibleDuplicate: z.boolean().optional(),
+  solveError: z.string().optional(),
 });
 export type Question = z.infer<typeof questionSchema>;
 export type TextLine = {
@@ -46,6 +47,16 @@ export type DocumentSet = {
   status: 'extracted' | 'processing' | 'ready' | 'partial';
   error?: string;
   retryAt?: number;
+  processing?: {
+    queue: { ids: string[]; provider: number; tries: number }[];
+    elapsedMs: number;
+    finished: number;
+    workDone: number;
+    failed: number;
+    batchSize: number;
+    provider: string;
+    generateOptions: boolean;
+  };
   analysisCursor?: number;
   analysisComplete?: boolean;
 };

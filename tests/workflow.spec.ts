@@ -85,9 +85,7 @@ test('mobile interface fits viewport and supports dark theme on desktop', async 
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
 });
 
-test('AI batch failure retains solved questions and retry requests only unfinished items', async ({
-  page,
-}) => {
+test('AI batch failure automatically retries only unfinished items', async ({ page }) => {
   await page.route('**/api/config', (route) =>
     route.fulfill({ json: { ai: true, ocr: false, batchSize: 10 } }),
   );
@@ -128,10 +126,6 @@ test('AI batch failure retains solved questions and retry requests only unfinish
     mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     buffer: docxFixture(lines),
   });
-  await expect(page.getByText('10 pregătite', { exact: true })).toBeVisible();
-  await expect(page.getByText('Lot eșuat pentru testul de recuperare.')).toBeVisible();
-  await page.reload();
-  await page.getByRole('button', { name: 'Reîncearcă loturile rămase' }).click();
   await expect(page.getByText('25 pregătite', { exact: true })).toBeVisible();
   expect(calls).toBe(4);
   expect(received[2]).toEqual(received[1]);

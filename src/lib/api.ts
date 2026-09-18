@@ -41,6 +41,13 @@ export function apiError(error: unknown) {
     typeof error === 'object' && error && 'code' in error ? String(error.code) : '';
   const failure = (message: string, code: string, status = 503) =>
     Response.json({ error: message, code }, { status });
+  if (code === 'GROQ_MISSING')
+    return failure(
+      'Adaugă GROQ_API_KEY în Vercel, apoi redeploy.',
+      'AI_MISSING',
+    );
+  if (status === 413 || upstreamCode === 'context_length_exceeded')
+    return failure('Lotul este prea mare. Va fi împărțit automat.', 'TOO_LARGE', 413);
   if (code === 'GEMINI_MISSING')
     return failure(
       'Configurează GEMINI_API_KEY în Vercel folosind o cheie din Google AI Studio, apoi redeploy.',
@@ -52,12 +59,12 @@ export function apiError(error: unknown) {
       'AI_KEY_FORMAT',
     );
   if (code === 'AI_PROVIDER_INVALID')
-    return failure('AI_PROVIDER trebuie să fie gemini sau openai în Vercel.', 'AI_CONFIG');
+    return failure('AI_PROVIDER trebuie să fie groq, gemini sau openai în Vercel.', 'AI_CONFIG');
   if (code === 'AI_MODEL_INVALID')
     return failure('GEMINI_MODEL are un format invalid.', 'AI_MODEL');
   if (upstreamCode === 'DAILY_QUOTA')
     return failure(
-      'Cota zilnică sau lunară Gemini este epuizată. Progresul este salvat. Verifică limitele în Google AI Studio și continuă după resetarea cotei.',
+      'Cota zilnică sau lunară a furnizorului este epuizată. Progresul este salvat; se încearcă furnizorul de rezervă, dacă este configurat.',
       'AI_QUOTA',
     );
   if (code === 'AI_KEY_FORMAT')
@@ -91,7 +98,7 @@ export function apiError(error: unknown) {
     );
   if (status === 404 || upstreamCode === 'model_not_found')
     return failure(
-      'Modelul AI configurat nu este disponibil pentru acest proiect. Verifică AI_MODEL sau GEMINI_MODEL în Vercel și accesul la model, apoi redeploy.',
+      'Modelul AI configurat nu este disponibil pentru acest proiect. Verifică GROQ_MODEL, GEMINI_MODEL sau AI_MODEL în Vercel și accesul la model, apoi redeploy.',
       'AI_MODEL',
     );
   if (
@@ -112,7 +119,7 @@ export function apiError(error: unknown) {
     return Response.json(
       {
         error:
-          'AI nu este configurat. Administratorul trebuie să adauge OPENAI_API_KEY în Vercel. Poți verifica manual întrebările.',
+          'AI nu este configurat. Adaugă GROQ_API_KEY sau GEMINI_API_KEY în Vercel și redeploy. Poți verifica manual întrebările.',
         code,
       },
       { status: 503 },
@@ -144,7 +151,8 @@ export function apiError(error: unknown) {
         code === 'AI_INVALID'
           ? 'AI a returnat un rezultat incomplet. Reîncearcă acest lot.'
           : 'Serviciul nu a răspuns corect. Progresul salvat este păstrat; reîncearcă.',
-      code: 'PROVIDER_ERROR',
+      code: code === 'AI_INVALID' ? 'AI_INVALID' : 'PROVIDER_ERROR',
+      upstreamStatus: status || undefined,
     },
     { status: 502 },
   );

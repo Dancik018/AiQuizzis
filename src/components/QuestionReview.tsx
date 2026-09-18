@@ -50,6 +50,7 @@ export default function QuestionReview({
             ? {
                 ...q,
                 solved: true,
+                solveError: undefined,
                 correctAnswer:
                   q.type === 'multiple_choice' ? q.options[q.correctOptionIndex!] : q.correctAnswer,
               }
@@ -145,6 +146,7 @@ export default function QuestionReview({
                   </span>
                 </div>
                 <h3>{q.question}</h3>
+                {q.solveError && <p className="analysis-status">{q.solveError}</p>}
                 <p>
                   {q.solved
                     ? `Încredere răspuns: ${Math.round(q.answerConfidence * 100)}%`

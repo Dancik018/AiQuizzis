@@ -70,12 +70,12 @@ export function docxFixture(lines = fixtureLines()) {
     }),
   );
 }
-export async function pdfFixture() {
+export async function pdfFixture(lines = fixtureLines()) {
   const pdf = await PDFDocument.create();
   const font = await pdf.embedFont(StandardFonts.Helvetica);
   let page = pdf.addPage();
   let y = 800;
-  for (const line of fixtureLines()) {
+  for (const line of lines) {
     if (y < 35) {
       page = pdf.addPage();
       y = 800;

@@ -19,12 +19,12 @@ One Next.js App Router application. No Python server, Redis, permanent worker or
 
 1. Browser extracts all pages with PDF.js and a bundled worker, or DOCX OOXML paragraphs/tables/lists/formatting. Text and metadata are saved in IndexedDB.
 2. Deterministic parsing filters language and duplicates without a global question-count cap. Color is secondary metadata; blue Romanian is retained.
-3. At most 10 questions per `/api/solve` request; each response is saved before advancing. Refresh preserves work; **Reîncearcă loturile rămase** continues.
-4. Optional **Caută întrebări suplimentare** sends bounded overlapping chunks to `/api/analyze` for unusual layouts, preserving existing questions/options. Each chunk saves its cursor. This action makes additional paid requests.
+3. PDF and DOCX share an adaptive solver queue (up to 40 questions). Input/output token estimates determine each batch. Successful batches save immediately to IndexedDB. Errors retry, switch configured providers, then split down to individual questions; an isolated failure does not stop the document. Refresh preserves the queue; **Reîncearcă loturile rămase** resumes.
+4. Optional **Caută întrebări suplimentare** sends bounded overlapping chunks to `/api/analyze` for unusual layouts, preserving existing questions/options. Each chunk saves its cursor. This action consumes additional provider quota.
 5. Scanned pages are rendered locally and recognized by Tesseract.js in a browser Web Worker, using Romanian and English models. OCR is free and needs no API key. Engine and models are served by this application and cached locally; scanned images never leave the browser.
 6. Quiz snapshots retain questions, orders, answers, flags/skips, position and timestamps. Editing source documents does not rewrite quiz history.
 
-Modules: `src/lib/extract.ts`, `detection.ts`, `processing.ts`, `ai.ts`, `quiz.ts`, `storage.ts`. `AIProvider` uses a shared structured-output transport for OpenAI or Gemini across solving, grading and document analysis.
+Modules: `src/lib/extract.ts`, `detection.ts`, `processing.ts`, `ai.ts`, `quiz.ts`, `storage.ts`. `AIProvider` uses a shared structured-output transport for Groq, Gemini or OpenAI across solving, grading and document analysis.
 
 ## Installation / development
 
@@ -42,12 +42,16 @@ Windows: `Copy-Item .env.example .env.local`. Never commit real keys.
 
 Set variables in the **existing Vercel project**, Settings → Environment Variables (Production, optionally Preview):
 
-| Variable         | Meaning                                                                             |
-| ---------------- | ----------------------------------------------------------------------------------- |
-| `AI_PROVIDER`    | `openai` or `gemini`                                                                |
-| `OPENAI_API_KEY` | Server-only key for automatic answers, structure analysis and semantic evaluation   |
-| `AI_MODEL`       | Responses structured-output model available to your project; default `gpt-4.1-mini` |
-| `AI_BATCH_SIZE`  | 1–10, default 10                                                                    |
+| Variable                 | Meaning                                                                             |
+| ------------------------ | ----------------------------------------------------------------------------------- |
+| `AI_PROVIDER`            | Optional: `groq`, `gemini` or `openai`; automatic preference Groq → Gemini → OpenAI |
+| `OPENAI_API_KEY`         | Server-only key for automatic answers, structure analysis and semantic evaluation   |
+| `AI_MODEL`               | Responses structured-output model available to your project; default `gpt-4.1-mini` |
+| `GROQ_API_KEY`           | Server-only Groq key; create at https://console.groq.com/keys                       |
+| `GROQ_MODEL`             | Default `openai/gpt-oss-120b`, requires strict structured-output support            |
+| `GEMINI_API_KEY`         | Optional Google AI Studio fallback key                                              |
+| `GEMINI_MODEL`           | Default `gemini-3.5-flash`                                                          |
+| `AI_REQUEST_INTERVAL_MS` | Optional batch-start interval override, 2000–120000 ms; normally leave unset        |
 
 Never use `NEXT_PUBLIC_` for credentials. Building and manual/source-key review require no key. Missing services return clear Romanian messages. Live requests require provider accounts and may incur charges.
 
@@ -98,7 +102,7 @@ Unit tests check counts, options, Romanian/English/Russian/French handling, diac
 - Multiple-choice supports exactly one correct answer. Multiple-correct/ambiguous questions require adaptation or open-answer format.
 - Open answers use normalized equality, then semantic AI. Unavailable/low-confidence grading remains pending; practice/results allow manual assessment. Pending scores are provisional.
 - Data is browser/device-local. Clearing site data removes it; no sync or remote backup. Private browsing/quota restrictions can prevent saving; errors are displayed.
-- Files remain local, but AI sends question text to the selected provider (OpenAI or Google Gemini) while OCR stays entirely in the browser. OpenAI requests use `store: false`.
+- Files remain local, but AI sends question text to the selected provider (Groq, Google Gemini or explicitly selected OpenAI) while OCR stays entirely in the browser. OpenAI requests use `store: false`.
 - Exam mode hides UI feedback; it is personal practice, not secure proctoring. Answers exist in local quiz data.
 
 ## Security
@@ -107,26 +111,24 @@ Request schemas, body bounds, same-origin checks, structured AI validation, uniq
 
 ### Free scanned PDF OCR
 
-Tesseract.js and its language models are copied from locked npm dependencies during build. The first scanned upload downloads the engine and models; subsequent use can reuse browser caches. OCR runs sequentially with one worker per document and actual recognition progress. Slow devices and hundreds of scanned pages can take substantial time. Blurry images, handwriting and complicated layouts require manual review. OpenAI answer generation is separate and still requires a server-side API key and API billing.
+Tesseract.js and its language models are copied from locked npm dependencies during build. The first scanned upload downloads the engine and models; subsequent use can reuse browser caches. OCR runs sequentially with one worker per document and actual recognition progress. Slow devices and hundreds of scanned pages can take substantial time. Blurry images, handwriting and complicated layouts require manual review. AI answer generation is separate and requires a server-side provider key and available quota.
 
 ### AI processing errors
 
-If extracted questions remain unready, use the displayed error to resolve key formatting/authentication, billing quota, model access or timeouts. In Vercel, the variable name is `OPENAI_API_KEY`; its value is copied directly from OpenAI, without Markdown escapes or quotes. Redeploy after changing environment variables. Never share keys in chat or screenshots. Retry remaining batches from the saved document after fixing configuration; re-uploading is unnecessary. Manual answer review also enables quizzes without AI. Provider error messages are not returned verbatim because they may contain credentials.
+If extracted questions remain unready, use the displayed error to resolve key formatting/authentication, billing quota, model access or timeouts. In Vercel, use `GROQ_API_KEY`, `GEMINI_API_KEY` or `OPENAI_API_KEY` as the variable name; copy its value directly from the matching provider, without Markdown escapes or quotes. Redeploy after changing environment variables. Never share keys in chat or screenshots. Retry remaining batches from the saved document after fixing configuration; re-uploading is unnecessary. Manual answer review also enables quizzes without AI. Provider error messages are not returned verbatim because they may contain credentials.
 
-## Gemini free-tier setup
+## Free AI and fallback
 
-Create a key at https://aistudio.google.com/apikey and enter it directly in the existing Vercel project (never in chat or source code):
+Recommended: add GROQ_API_KEY in the existing Vercel Production environment and redeploy. With AI_PROVIDER unset, Groq is preferred automatically. The default model is openai/gpt-oss-120b, using strict JSON Schema output. A configured Gemini key is the fallback for solving; OpenAI is never automatically selected as a paid fallback. Explicit AI_PROVIDER=openai still supports existing paid setups.
 
-```env
-AI_PROVIDER=gemini
-GEMINI_API_KEY=your-key-entered-only-in-vercel
-GEMINI_MODEL=gemini-3.5-flash
-```
+As checked on 18 September 2026, [Groq published free limits](https://console.groq.com/docs/rate-limits) for this model are 30 requests/minute, 1,000 requests/day, 8,000 tokens/minute and 200,000 tokens/day. Actual organization limits shown in the Groq console take precedence and may change. [Strict outputs](https://console.groq.com/docs/structured-outputs) and a [131,072-token context](https://console.groq.com/docs/models) are supported. The free token quota, not the context window, constrains practical batch size.
 
-Redeploy after changing variables. Gemini uses GEMINI_MODEL independently of the existing OpenAI AI_MODEL. No automatic provider fallback occurs, so requests are not unexpectedly sent to another provider or paid account. If AI_PROVIDER is absent, a configured Gemini key selects Gemini; otherwise OpenAI remains the default.
+Groq batches budget 6,500 estimated tokens including output and prompt overhead and start at least 55 seconds apart. Short questions generally fit around 20 per request; long questions fit fewer. Gemini uses a 16,000-token batch budget and 13-second interval. Batches never exceed 40 questions. A 300-question day is practical for short questions within these published limits, but 500–1,000 long questions or shared traffic are not guaranteed free. Actual reasoning/output usage and retries also consume quota.
 
-The Gemini free tier has per-minute, token and daily limits; availability depends on the project and region. Free-tier content may be used to improve Google products. Review https://ai.google.dev/gemini-api/docs/pricing and https://ai.google.dev/gemini-api/docs/rate-limits before uploading sensitive documents. Neither provider guarantees correct answers; manual review remains available.
+Temporary limits honor Retry-After and use another configured free provider when available. Persistent limits or exhaustion of every configured provider pause with the remaining queue saved; the app cannot bypass a provider quota. Provider waits happen in the browser, not inside a Vercel function. Keep the tab open while processing. Multiple users/tabs share organization quotas; this is not a distributed scheduler.
 
-Batch starts are spaced by 13 seconds for Gemini and 2 seconds for OpenAI by default. AI_REQUEST_INTERVAL_MS optionally sets a 2000–60000 ms interval. A temporary rate limit honors Retry-After and retries the same unfinished batch at most three times; longer waits and daily quotas stop safely. Countdown deadlines and completed batches survive refresh. Browser waits do not consume Vercel function execution time. Retry saved documents without uploading again. Multiple users/tabs still share provider quotas; this is not a global distributed queue.
+The processing display reports real attempted/total counts, provider, batch size, elapsed time and ETA calculated from completed work. Isolated failures are marked for manual review and do not become invented answers. Answers with low confidence also require review.
 
-Gemini transport tests use explicit HTTP mocks to verify schemas, original-option preservation, output validation, quota classification and retry delays. Live Gemini inference requires your own configured key and is not claimed by those tests.
+Gemini setup: create a key at https://aistudio.google.com/apikey and add GEMINI_API_KEY in Vercel. Review [Google pricing](https://ai.google.dev/gemini-api/docs/pricing) and [limits](https://ai.google.dev/gemini-api/docs/rate-limits); free-tier content may be used to improve Google products. Redeploy after environment changes.
+
+Provider transport and recovery tests use explicit mocks, including 450-question fallback, splitting and resume. Browser tests use actual PDF/DOCX bytes with 450 unanswered questions and mock only inference. These tests establish pipeline behavior, not academic answer accuracy or live quota availability.

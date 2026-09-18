@@ -1,7 +1,7 @@
 import OpenAI from 'openai';
 import { zodTextFormat } from 'openai/helpers/zod';
 import { z } from 'zod';
-import { aiProviderName, apiKey } from './ai-config';
+import { aiProviderName, apiKey, type ProviderName } from './ai-config';
 
 type Message = { role: 'system' | 'user'; content: string };
 
@@ -10,9 +10,35 @@ export async function structuredAI<T>(
   name: string,
   input: Message[],
   maxTokens: number,
+  selected: ProviderName = aiProviderName(),
 ): Promise<T> {
   let output: unknown;
-  if (aiProviderName() === 'openai') {
+  if (selected === 'groq') {
+    const key = process.env.GROQ_API_KEY?.trim();
+    if (!key) throw new Error('GROQ_MISSING');
+    const client = new OpenAI({
+      apiKey: key,
+      baseURL: 'https://api.groq.com/openai/v1',
+      timeout: 45000,
+      maxRetries: 0,
+    });
+    const response = await client.chat.completions.create({
+      model: process.env.GROQ_MODEL?.trim() || 'openai/gpt-oss-120b',
+      messages: input,
+      max_completion_tokens: maxTokens,
+      reasoning_effort: 'low',
+      response_format: {
+        type: 'json_schema',
+        json_schema: { name, strict: true, schema: z.toJSONSchema(schema) },
+      },
+    });
+    if (response.choices[0]?.finish_reason !== 'stop') throw new Error('AI_INVALID');
+    try {
+      output = JSON.parse(response.choices[0]?.message.content || '');
+    } catch {
+      throw new Error('AI_INVALID');
+    }
+  } else if (selected === 'openai') {
     const client = new OpenAI({ apiKey: apiKey(), timeout: 45000, maxRetries: 0 });
     const response = await client.responses.parse({
       model: process.env.AI_MODEL?.trim() || 'gpt-4.1-mini',
