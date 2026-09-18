@@ -37,6 +37,58 @@ export async function body<T>(req: Request, schema: z.ZodType<T>, max = 150000):
 export function apiError(error: unknown) {
   const code = error instanceof Error ? error.message : '';
   const status = typeof error === 'object' && error && 'status' in error ? Number(error.status) : 0;
+  const upstreamCode =
+    typeof error === 'object' && error && 'code' in error ? String(error.code) : '';
+  const failure = (message: string, code: string, status = 503) =>
+    Response.json({ error: message, code }, { status });
+  if (code === 'AI_KEY_FORMAT')
+    return failure(
+      'Valoarea OPENAI_API_KEY din Vercel are un format invalid. Copiază cheia nouă direct din OpenAI, fără ghilimele, spații sau bare inverse, apoi redeploy. Nu copia cheia dintr-un mesaj formatat.',
+      'AI_KEY_FORMAT',
+    );
+  // Never expose upstream messages: authentication errors can contain credentials.
+  if (status === 401 || upstreamCode === 'invalid_api_key')
+    return failure(
+      'Cheia OpenAI este invalidă sau revocată. În Vercel, înlocuiește valoarea OPENAI_API_KEY cu o cheie nouă copiată direct din OpenAI, apoi redeploy. Documentul este salvat.',
+      'AI_AUTH',
+    );
+  if (
+    [
+      'insufficient_quota',
+      'billing_hard_limit_reached',
+      'organization_spend_limit_exceeded',
+      'project_spend_limit_exceeded',
+      'organization_usage_limit_exceeded',
+    ].includes(upstreamCode)
+  )
+    return failure(
+      'OpenAI nu are credite disponibile sau a atins limita de cheltuieli. Verifică facturarea și limitele proiectului OpenAI, apoi reîncearcă loturile rămase. Documentul este salvat.',
+      'AI_QUOTA',
+    );
+  if (status === 403)
+    return failure(
+      'Cheia OpenAI nu are permisiunea necesară. Verifică accesul proiectului la model și la Responses API.',
+      'AI_ACCESS',
+    );
+  if (status === 404 || upstreamCode === 'model_not_found')
+    return failure(
+      'Modelul AI configurat nu este disponibil pentru acest proiect. Verifică AI_MODEL în Vercel și accesul la model, apoi redeploy.',
+      'AI_MODEL',
+    );
+  if (
+    error instanceof Error &&
+    ['APIConnectionTimeoutError', 'TimeoutError', 'AbortError'].includes(error.name)
+  )
+    return failure(
+      'OpenAI nu a răspuns la timp. Reîncearcă loturile rămase; întrebările deja rezolvate sunt salvate.',
+      'AI_TIMEOUT',
+      504,
+    );
+  if (status === 400)
+    return failure(
+      'OpenAI a respins cererea. Verifică dacă AI_MODEL acceptă Responses API și răspunsuri structurate.',
+      'AI_REQUEST',
+    );
   if (code === 'AI_MISSING')
     return Response.json(
       {

@@ -651,6 +651,14 @@ export default function Home() {
                             )}
                           </div>
                         )}
+                        {accepted === 0 && processingId !== doc.id && (
+                          <p className="analysis-status">
+                            Quiz-ul devine disponibil după verificarea răspunsurilor. Reîncearcă
+                            loturile după remedierea erorii sau folosește „Vezi întrebările” pentru
+                            a completa și verifica răspunsurile manual. Nu trebuie să încarci din
+                            nou fișierul.
+                          </p>
+                        )}
                         {doc.analysisCursor !== undefined && (
                           <p className="analysis-status">
                             Analiză structură: {doc.analysisCursor} / {doc.lines.length} linii{' '}

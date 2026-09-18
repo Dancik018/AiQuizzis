@@ -2,6 +2,7 @@ import OpenAI from 'openai';
 import { zodTextFormat } from 'openai/helpers/zod';
 import { z } from 'zod';
 import { body, apiError } from '@/lib/api';
+import { apiKey } from '@/lib/ai-config';
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 const schema = z.object({
@@ -29,7 +30,7 @@ export async function POST(req: Request) {
     );
     if (!process.env.OPENAI_API_KEY) throw new Error('AI_MISSING');
     const client = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
+      apiKey: apiKey(),
       timeout: 45000,
       maxRetries: 0,
     });

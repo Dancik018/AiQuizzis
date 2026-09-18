@@ -108,3 +108,7 @@ Request schemas, body bounds, same-origin checks, structured AI validation, uniq
 ### Free scanned PDF OCR
 
 Tesseract.js and its language models are copied from locked npm dependencies during build. The first scanned upload downloads the engine and models; subsequent use can reuse browser caches. OCR runs sequentially with one worker per document and actual recognition progress. Slow devices and hundreds of scanned pages can take substantial time. Blurry images, handwriting and complicated layouts require manual review. OpenAI answer generation is separate and still requires a server-side API key and API billing.
+
+### AI processing errors
+
+If extracted questions remain unready, use the displayed error to resolve key formatting/authentication, billing quota, model access or timeouts. In Vercel, the variable name is `OPENAI_API_KEY`; its value is copied directly from OpenAI, without Markdown escapes or quotes. Redeploy after changing environment variables. Never share keys in chat or screenshots. Retry remaining batches from the saved document after fixing configuration; re-uploading is unnecessary. Manual answer review also enables quizzes without AI. Provider error messages are not returned verbatim because they may contain credentials.
