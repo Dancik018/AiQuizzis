@@ -2,18 +2,23 @@
 import { useState } from 'react';
 import { ArrowLeft, ArrowRight, Flag, Check, X, RotateCcw, Trophy } from 'lucide-react';
 import { exactAnswer, results } from '@/lib/quiz';
-import type { Answer, Question, QuizSession } from '@/lib/model';
+import { ready, type Answer, type Question, type QuizSession, type DocumentSet } from '@/lib/model';
+import PreparationStatus from './PreparationStatus';
 
 export default function QuizPlayer({
   session,
   onChange,
   onExit,
   onRetry,
+  preparation = [],
+  onContinue,
 }: {
   session: QuizSession;
   onChange: (s: QuizSession) => Promise<void>;
   onExit: () => void;
   onRetry: (q: Question[]) => void;
+  preparation?: DocumentSet[];
+  onContinue?: () => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -32,7 +37,7 @@ export default function QuizPlayer({
     }
   };
   const submit = async () => {
-    if (!answer?.value.trim()) return;
+    if (!ready(q) || !answer?.value.trim()) return;
     setBusy(true);
     setError('');
     const next: Answer = {
@@ -207,76 +212,110 @@ export default function QuizPlayer({
             <span>{Math.round((answered / session.questions.length) * 100)}% răspunse</span>
           </div>
           <progress value={answered} max={session.questions.length} />
-          <p className="source-label">
-            {q.source} · Pagina {q.page}
-          </p>
-          <h1 className="quiz-question">{q.question}</h1>
-          {q.type === 'multiple_choice' ? (
-            <div className="answers">
-              {session.optionOrders[session.current].map((index, display) => (
-                <button
-                  key={index}
-                  disabled={busy || Boolean(answer?.submitted && !exam)}
-                  className={`answer ${answer?.optionIndex === index ? 'selected' : ''} ${!exam && answer?.submitted && index === q.correctOptionIndex ? 'correct' : ''}`}
-                  onClick={() => choose(q.options[index], index)}
-                >
-                  <span>{String.fromCharCode(65 + display)}</span>
-                  {q.options[index]}
-                </button>
-              ))}
-            </div>
-          ) : (
-            <label>
-              Răspunsul tău
-              <textarea
-                aria-label="Răspunsul tău"
-                rows={4}
-                value={answer?.value || ''}
-                disabled={busy || Boolean(answer?.submitted && !exam)}
-                onChange={(e) => choose(e.target.value)}
-              />
-            </label>
+          {session.progressive && (
+            <PreparationStatus documents={preparation} questions={session.questions} />
           )}
-          {answer?.submitted && !exam && (
-            <div className={`feedback ${answer.correct ? 'positive' : 'negative'}`} role="status">
-              <b>
-                {answer.correct === null ? (
-                  'Necesită verificare'
-                ) : answer.correct ? (
-                  <>
-                    <Check size={18} /> Corect!
-                  </>
-                ) : (
-                  <>
-                    <X size={18} /> Greșit
-                  </>
-                )}
-              </b>
-              <p>Răspuns corect: {q.correctAnswer}</p>
-              <p>{answer.explanation || q.explanation}</p>
-              {answer.correct === null && (
-                <div className="button-row">
-                  <button
-                    onClick={() =>
-                      persist({
-                        ...session,
-                        answers: { ...session.answers, [q.id]: { ...answer, correct: true } },
-                      })
-                    }
-                  >
-                    Răspunsul meu este corect
-                  </button>
-                  <button
-                    onClick={() =>
-                      persist({
-                        ...session,
-                        answers: { ...session.answers, [q.id]: { ...answer, correct: false } },
-                      })
-                    }
-                  >
-                    Răspunsul meu este greșit
-                  </button>
+          {ready(q) && (!session.progressive || session.bufferStarted) ? (
+            <>
+              <p className="source-label">
+                {q.source} · Pagina {q.page}
+              </p>
+              <h1 className="quiz-question">{q.question}</h1>
+              {q.type === 'multiple_choice' ? (
+                <div className="answers">
+                  {session.optionOrders[session.current].map((index, display) => (
+                    <button
+                      key={index}
+                      disabled={busy || Boolean(answer?.submitted && !exam)}
+                      className={`answer ${answer?.optionIndex === index ? 'selected' : ''} ${!exam && answer?.submitted && index === q.correctOptionIndex ? 'correct' : ''}`}
+                      onClick={() => choose(q.options[index], index)}
+                    >
+                      <span>{String.fromCharCode(65 + display)}</span>
+                      {q.options[index]}
+                    </button>
+                  ))}
                 </div>
+              ) : (
+                <label>
+                  Răspunsul tău
+                  <textarea
+                    aria-label="Răspunsul tău"
+                    rows={4}
+                    value={answer?.value || ''}
+                    disabled={busy || Boolean(answer?.submitted && !exam)}
+                    onChange={(e) => choose(e.target.value)}
+                  />
+                </label>
+              )}
+              {answer?.submitted && !exam && (
+                <div
+                  className={`feedback ${answer.correct ? 'positive' : 'negative'}`}
+                  role="status"
+                >
+                  <b>
+                    {answer.correct === null ? (
+                      'Necesită verificare'
+                    ) : answer.correct ? (
+                      <>
+                        <Check size={18} /> Corect!
+                      </>
+                    ) : (
+                      <>
+                        <X size={18} /> Greșit
+                      </>
+                    )}
+                  </b>
+                  <p>Răspuns corect: {q.correctAnswer}</p>
+                  <p>{answer.explanation || q.explanation}</p>
+                  {answer.correct === null && (
+                    <div className="button-row">
+                      <button
+                        onClick={() =>
+                          persist({
+                            ...session,
+                            answers: { ...session.answers, [q.id]: { ...answer, correct: true } },
+                          })
+                        }
+                      >
+                        Răspunsul meu este corect
+                      </button>
+                      <button
+                        onClick={() =>
+                          persist({
+                            ...session,
+                            answers: { ...session.answers, [q.id]: { ...answer, correct: false } },
+                          })
+                        }
+                      >
+                        Răspunsul meu este greșit
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="empty" role="status">
+              <h2>Se pregătesc următoarele întrebări...</h2>
+              <p>
+                {preparation
+                  .filter((d) => d.status === 'processing')
+                  .reduce((n, d) => n + (d.processing?.batchSize || 0), 0)}{' '}
+                întrebări sunt în curs de pregătire.
+              </p>
+              {!session.bufferStarted && (
+                <p>
+                  Pregătim bufferul inițial de {Math.min(20, session.questions.length)} întrebări.
+                </p>
+              )}
+              {(q.solveError || (q.solved && !ready(q))) && (
+                <p>
+                  Întrebarea necesită verificare manuală. Poți continua la alta sau reveni la
+                  documente.
+                </p>
+              )}
+              {preparation.every((d) => d.status !== 'processing') && (
+                <button onClick={onContinue}>Continuă pregătirea AI</button>
               )}
             </div>
           )}
@@ -292,7 +331,7 @@ export default function QuizPlayer({
             >
               <ArrowLeft size={17} /> Înapoi
             </button>
-            {!answer?.submitted && (
+            {ready(q) && (!session.progressive || session.bufferStarted) && !answer?.submitted && (
               <button className="primary" disabled={busy || !answer?.value.trim()} onClick={submit}>
                 {busy ? 'Se verifică…' : exam ? 'Salvează răspunsul' : 'Verifică'}
               </button>

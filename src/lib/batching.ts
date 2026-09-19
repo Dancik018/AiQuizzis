@@ -4,12 +4,14 @@ export type SolverProfile = {
   maxQuestions: number;
   tokenBudget: number;
   intervalMs: number;
+  concurrency?: number;
 };
 export const defaultProfile = (id: SolverProfile['id']): SolverProfile => ({
   id,
   maxQuestions: 40,
   tokenBudget: id === 'groq' ? 6500 : 16000,
   intervalMs: id === 'groq' ? 55000 : id === 'gemini' ? 13000 : 2000,
+  concurrency: 1,
 });
 export const estimatedTokens = (q: Question, generate: boolean) =>
   Math.ceil((q.question.length + q.options.join(' ').length + q.id.length + 60) / 2.5) +

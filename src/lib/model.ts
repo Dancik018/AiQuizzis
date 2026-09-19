@@ -20,6 +20,7 @@ export const questionSchema = z.object({
   color: z.string().max(100).optional(),
   possibleDuplicate: z.boolean().optional(),
   solveError: z.string().optional(),
+  strengthened: z.boolean().optional(),
 });
 export type Question = z.infer<typeof questionSchema>;
 export type TextLine = {
@@ -47,6 +48,7 @@ export type DocumentSet = {
   status: 'extracted' | 'processing' | 'ready' | 'partial';
   error?: string;
   retryAt?: number;
+  extractionMs?: number;
   processing?: {
     queue: { ids: string[]; provider: number; tries: number }[];
     elapsedMs: number;
@@ -56,6 +58,8 @@ export type DocumentSet = {
     batchSize: number;
     provider: string;
     generateOptions: boolean;
+    optionsOnly?: boolean;
+    metrics?: ProcessingMetrics;
   };
   analysisCursor?: number;
   analysisComplete?: boolean;
@@ -87,6 +91,19 @@ export type QuizSession = {
   skipped: string[];
   startedAt: string;
   completedAt?: string;
+  progressive?: boolean;
+  bufferStarted?: boolean;
+};
+export type ProcessingMetrics = {
+  requests: number;
+  sent: number;
+  retries: number;
+  rateLimits: number;
+  waitMs: number;
+  latencyMs: number;
+  successful: number;
+  recent: { ms: number; count: number }[];
+  first20Ms?: number;
 };
 export const normalize = (text: string) =>
   text

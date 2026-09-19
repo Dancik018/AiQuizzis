@@ -9,11 +9,15 @@ export default function QuestionReview({
   onChange,
   onBack,
   onQuiz,
+  onBulk,
+  processing = false,
 }: {
   doc: DocumentSet;
   onChange: (doc: DocumentSet) => Promise<void>;
   onBack: () => void;
   onQuiz: () => void;
+  onBulk?: () => Promise<void>;
+  processing?: boolean;
 }) {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
@@ -73,7 +77,13 @@ export default function QuestionReview({
           'Variantele originale sunt păstrate. Poți regenera răspunsul sau edita manual.',
         );
       const input = distractors ? { ...editing, options: [], correctOptionIndex: null } : editing;
-      setEditing((await solveQuestions([input], distractors))[0]);
+      const generated = (await solveQuestions([input], distractors))[0];
+      if (!generated) throw new Error('AI nu a returnat variante valide. Reîncearcă.');
+      await onChange({
+        ...doc,
+        questions: doc.questions.map((q) => (q.id === generated.id ? generated : q)),
+      });
+      setEditing(generated);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'AI indisponibil.');
     } finally {
@@ -99,6 +109,19 @@ export default function QuestionReview({
         </button>
       </div>
       <div className="toolbar">
+        <button
+          disabled={busy || processing || !doc.questions.some((q) => !q.options.length)}
+          onClick={async () => {
+            setBusy(true);
+            try {
+              await onBulk?.();
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          Generează variante pentru toate
+        </button>
         <label className="search">
           <Search size={18} />
           <input
@@ -156,6 +179,7 @@ export default function QuestionReview({
               <button
                 className="icon-button"
                 aria-label={`Editează întrebarea ${doc.questions.indexOf(q) + 1}`}
+                disabled={processing}
                 onClick={() => {
                   setEditing(structuredClone(q));
                   setError('');
@@ -325,10 +349,10 @@ export default function QuestionReview({
                 <Sparkles size={16} /> Regenerează răspuns
               </button>
               <button
-                disabled={busy || editing.originalOptions.length > 0}
+                disabled={busy || processing || editing.options.length > 0}
                 onClick={() => regenerate(true)}
               >
-                Generează variante
+                {busy ? 'Se generează variantele...' : 'Generează variante'}
               </button>
             </div>
             <div className="modal-footer">

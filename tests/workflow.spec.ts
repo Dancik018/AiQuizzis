@@ -29,7 +29,6 @@ test('real DOCX extraction: 450 questions, review, existing-file quiz, exam, ref
   await expect(page.locator('.feedback')).toHaveCount(0);
   await expect(page.getByText('1 răspunse · 9 nerăspunse')).toBeVisible();
   await page.reload();
-  await page.getByRole('button', { name: 'Continuă Quiz', exact: true }).click();
   await expect(page.getByText('1 răspunse · 9 nerăspunse')).toBeVisible();
   await page.getByRole('button', { name: 'Următoarea', exact: true }).click();
   await page.locator('.answer').filter({ hasText: /^\w2$/ }).click();

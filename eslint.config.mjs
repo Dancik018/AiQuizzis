@@ -10,6 +10,7 @@ export default defineConfig([
     'public/ocr/**',
     'test-results/**',
     'playwright-report/**',
+    'work/**',
   ]),
   { rules: { 'react-hooks/set-state-in-effect': 'off' } },
 ]);

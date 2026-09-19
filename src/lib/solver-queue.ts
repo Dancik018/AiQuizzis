@@ -1,5 +1,5 @@
-import { needsAnalysis, type DocumentSet, type Question } from './model';
-import { planBatches, type SolverProfile } from './batching';
+import { ready, needsAnalysis, type DocumentSet, type Question } from './model';
+import { estimatedTokens, planBatches, type SolverProfile } from './batching';
 
 export class BatchError extends Error {
   constructor(
@@ -15,10 +15,13 @@ type QueueIO = {
     questions: Question[],
     generate: boolean,
     provider: SolverProfile['id'],
+    strong?: boolean,
   ) => Promise<Question[]>;
   save: (doc: DocumentSet) => Promise<unknown>;
   update: (doc: DocumentSet) => void;
   shouldStop: () => boolean;
+  priority?: () => string[];
+  optionsOnly?: boolean;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
 };
@@ -38,10 +41,34 @@ export async function runSolverQueue(
     ...doc,
     status: 'processing',
     error: undefined,
-    questions: doc.questions.map((q) => (resume ? q : { ...q, solveError: undefined })),
+    questions: doc.questions.map((q) =>
+      resume || !q.solveError ? q : { ...q, solveError: undefined },
+    ),
   };
   const attempted = (q: Question) => q.solved || !needsAnalysis(q) || Boolean(q.solveError);
   const initial = current.questions.filter(attempted).length;
+  const optionsOnly = resume ? doc.processing?.optionsOnly : io.optionsOnly;
+  const needsWork = (q: Question) =>
+    optionsOnly
+      ? !q.options.length && q.language !== 'foreign'
+      : needsAnalysis(q) ||
+        (generate && !q.options.length && q.language !== 'foreign') ||
+        (q.solved && !ready(q) && !q.strengthened && !q.reviewed && q.language !== 'foreign');
+  const metrics = structuredClone(
+    doc.processing?.metrics || {
+      requests: 0,
+      sent: 0,
+      retries: 0,
+      rateLimits: 0,
+      waitMs: 0,
+      latencyMs: 0,
+      successful: 0,
+      recent: [],
+    },
+  );
+  let lastSuccess = now();
+  let lastPriority = '';
+  let concurrency = Math.max(1, Math.min(3, profiles[0].concurrency || 1));
   let lastProvider = doc.processing?.provider || profiles[0].id;
   const started = now(),
     previousTime = resume ? doc.processing!.elapsedMs : 0;
@@ -51,7 +78,7 @@ export async function runSolverQueue(
         provider: job.provider < profiles.length ? job.provider : 0,
         tries: 0,
       }))
-    : planBatches(current.questions.filter(needsAnalysis), profiles[0], generate).map((batch) => ({
+    : planBatches(current.questions.filter(needsWork), profiles[0], generate).map((batch) => ({
         ids: batch.map((q) => q.id),
         provider: 0,
         tries: 0,
@@ -73,6 +100,8 @@ export async function runSolverQueue(
       batchSize: queue[0]?.ids.length || 0,
       provider: queue.length ? profiles[queue[0].provider]?.id || lastProvider : lastProvider,
       generateOptions: generate,
+      optionsOnly,
+      metrics,
     },
   });
   const publish = async () => {
@@ -81,6 +110,7 @@ export async function runSolverQueue(
     io.update(current);
   };
   const wait = async (until: number, label: string) => {
+    const waitStarted = now();
     current.retryAt = until;
     await publish();
     while (now() < until && !io.shouldStop()) {
@@ -90,6 +120,7 @@ export async function runSolverQueue(
       });
       await sleep(Math.min(250, Math.max(1, until - now())));
     }
+    metrics.waitMs += now() - waitStarted;
     if (io.shouldStop()) return false;
     current.retryAt = undefined;
     current.error = undefined;
@@ -103,10 +134,30 @@ export async function runSolverQueue(
   };
   await publish();
   while (queue.length && !io.shouldStop()) {
+    const priority = io.priority?.() || [];
+    const signature = priority.join(',');
+    if (signature !== lastPriority) {
+      lastPriority = signature;
+      const rank = new Map(priority.map((id, i) => [id, i]));
+      const items = queue.flatMap((job) =>
+        job.ids.map((id) => ({ id, provider: job.provider, tries: job.tries })),
+      );
+      items.sort((a, b) => (rank.get(a.id) ?? Infinity) - (rank.get(b.id) ?? Infinity));
+      queue.length = 0;
+      for (const item of items) {
+        const last = queue.at(-1);
+        if (
+          last &&
+          last.provider === item.provider &&
+          last.tries === item.tries &&
+          last.ids.length < 40
+        )
+          last.ids.push(item.id);
+        else queue.push({ ids: [item.id], provider: item.provider, tries: item.tries });
+      }
+    }
     const job = queue[0];
-    job.ids = job.ids.filter((id) =>
-      current.questions.some((q) => q.id === id && needsAnalysis(q)),
-    );
+    job.ids = job.ids.filter((id) => current.questions.some((q) => q.id === id && needsWork(q)));
     if (!job.ids.length) {
       queue.shift();
       continue;
@@ -145,6 +196,22 @@ export async function runSolverQueue(
     }
     const profile = profiles[job.provider];
     lastProvider = profile.id;
+    if (current.questions.filter(ready).length < 20 && job.ids.length > 20) {
+      const tail = job.ids.slice(20);
+      if (queue.slice(1).every((j) => j.provider === job.provider && j.tries === job.tries)) {
+        tail.push(...queue.slice(1).flatMap((j) => j.ids));
+        queue.splice(
+          1,
+          queue.length - 1,
+          ...planBatches(
+            tail.map((id) => current.questions.find((q) => q.id === id)!),
+            profile,
+            generate,
+          ).map((batch) => ({ ...job, ids: batch.map((q) => q.id) })),
+        );
+      } else queue.splice(1, 0, { ...job, ids: tail });
+      job.ids = job.ids.slice(0, 20);
+    }
     const questions = job.ids.map((id) => current.questions.find((q) => q.id === id)!);
     const smaller = planBatches(questions, profile, generate);
     if (smaller.length > 1) {
@@ -156,34 +223,97 @@ export async function runSolverQueue(
       !(await wait(cooldown[job.provider], 'Următorul lot / reîncercare automată'))
     )
       break;
+    if ((io.priority?.() || []).join(',') !== lastPriority) continue;
     current.error = undefined;
     await publish();
     const timer = io.now ? undefined : setInterval(() => io.update(snapshot()), 1000);
     try {
       cooldown[job.provider] = now() + profile.intervalMs;
-      const solved = await io.solve(questions, generate, profile.id);
-      if (solved.length !== questions.length) throw new BatchError('Lot incomplet.', 'AI_INVALID');
-      const byId = new Map(solved.map((q) => [q.id, q]));
-      if (byId.size !== questions.length || questions.some((q) => !byId.has(q.id)))
-        throw new BatchError('Identificatori invalizi.', 'AI_INVALID');
-      current.questions = current.questions.map((q) => {
-        const answer = byId.get(q.id);
-        if (!answer) return q;
-        return q.solved
-          ? {
-              ...q,
-              language: answer.language,
-              languageConfidence: answer.languageConfidence,
-              solveError: undefined,
+      // Parallel groups share ONE token budget; extra prompt overhead is included.
+      const count =
+        current.questions.filter(ready).length < 20
+          ? 1
+          : Math.min(concurrency, profile.concurrency || 1, questions.length);
+      const cost =
+        questions.reduce((sum, q) => sum + estimatedTokens(q, generate), 0) + 1400 * count;
+      const groups: Question[][] = [];
+      const width = Math.ceil(questions.length / (cost <= profile.tokenBudget ? count : 1));
+      for (let i = 0; i < questions.length; i += width) groups.push(questions.slice(i, i + width));
+      let merge = Promise.resolve();
+      const outcomes = await Promise.allSettled(
+        groups.map(async (group) => {
+          const requestStarted = now();
+          metrics.requests++;
+          metrics.sent += group.length;
+          const strong = group.every((q) => q.solved && !q.strengthened && !ready(q));
+          const solved = await io.solve(group, generate, profile.id, strong);
+          metrics.latencyMs += now() - requestStarted;
+          const byId = new Map(solved.map((q) => [q.id, q]));
+          if (
+            byId.size !== solved.length ||
+            solved.some((q) => !group.some((original) => original.id === q.id))
+          )
+            throw new BatchError('Identificatori invalizi.', 'AI_INVALID');
+          merge = merge.then(async () => {
+            current.questions = current.questions.map((q) => {
+              const answer = byId.get(q.id);
+              if (!answer) return q;
+              if (q.solved && !strong && !(generate && !q.options.length))
+                return {
+                  ...q,
+                  language: answer.language,
+                  languageConfidence: answer.languageConfidence,
+                  solveError: undefined,
+                };
+              return {
+                ...answer,
+                strengthened: strong || answer.strengthened,
+                solveError: undefined,
+              };
+            });
+            job.ids = job.ids.filter((id) => !byId.has(id));
+            if (solved.length) {
+              metrics.successful += solved.length;
+              metrics.recent.push({ ms: now() - lastSuccess, count: solved.length });
+              metrics.recent = metrics.recent.slice(-5);
+              lastSuccess = now();
+              if (
+                metrics.first20Ms === undefined &&
+                current.questions.filter(ready).length >= Math.min(20, current.questions.length)
+              )
+                metrics.first20Ms = previousTime + now() - started;
+              // One stronger pass only, queued after upcoming unprepared questions.
+              const low = current.questions.filter(
+                (q) =>
+                  byId.has(q.id) &&
+                  q.solved &&
+                  !ready(q) &&
+                  !q.strengthened &&
+                  q.language !== 'foreign',
+              );
+              if (low.length)
+                queue.push({ ids: low.map((q) => q.id), provider: job.provider, tries: 0 });
+              await publish();
             }
-          : { ...answer, solveError: undefined };
-      });
+          });
+          await merge;
+          if (solved.length < group.length)
+            throw new BatchError('Se reîncearcă doar răspunsurile lipsă.', 'AI_INVALID');
+        }),
+      );
+      const failed = outcomes.find((r) => r.status === 'rejected');
+      if (failed?.status === 'rejected') throw failed.reason;
       queue.shift();
       totalRateRetries = 0;
       await publish();
     } catch (error) {
       const code = error instanceof BatchError ? error.code : 'PROVIDER_ERROR';
       current.error = error instanceof Error ? error.message : 'Lot eșuat.';
+      metrics.retries++;
+      if (!job.ids.length) {
+        queue.shift();
+        continue;
+      }
       if (
         [
           'AI_QUOTA',
@@ -199,6 +329,8 @@ export async function runSolverQueue(
         job.provider++;
         job.tries = 0;
       } else if (code === 'RATE_LIMIT') {
+        concurrency = 1;
+        metrics.rateLimits++;
         totalRateRetries++;
         const seconds = error instanceof BatchError ? error.retryAfter : 60;
         cooldown[job.provider] = now() + Math.max(2, seconds) * 1000;

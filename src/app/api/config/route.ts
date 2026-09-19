@@ -7,6 +7,7 @@ export async function GET() {
   } catch {}
   const providers = names.map((id) => ({
     ...defaultProfile(id),
+    concurrency: Math.max(1, Math.min(3, Number(process.env.AI_CONCURRENCY) || 1)),
     ...(process.env.AI_REQUEST_INTERVAL_MS
       ? {
           intervalMs: Math.min(

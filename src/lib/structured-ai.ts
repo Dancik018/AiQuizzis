@@ -11,6 +11,7 @@ export async function structuredAI<T>(
   input: Message[],
   maxTokens: number,
   selected: ProviderName = aiProviderName(),
+  strong = false,
 ): Promise<T> {
   let output: unknown;
   if (selected === 'groq') {
@@ -23,10 +24,13 @@ export async function structuredAI<T>(
       maxRetries: 0,
     });
     const response = await client.chat.completions.create({
-      model: process.env.GROQ_MODEL?.trim() || 'openai/gpt-oss-120b',
+      model:
+        (strong ? process.env.GROQ_STRONG_MODEL : process.env.GROQ_FAST_MODEL)?.trim() ||
+        process.env.GROQ_MODEL?.trim() ||
+        'openai/gpt-oss-120b',
       messages: input,
       max_completion_tokens: maxTokens,
-      reasoning_effort: 'low',
+      reasoning_effort: strong ? 'medium' : 'low',
       response_format: {
         type: 'json_schema',
         json_schema: { name, strict: true, schema: z.toJSONSchema(schema) },

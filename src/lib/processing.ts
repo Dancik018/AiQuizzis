@@ -7,11 +7,12 @@ export async function solveQuestions(
   questions: Question[],
   generateOptions = false,
   selected?: SolverProfile['id'],
+  strong = false,
 ): Promise<Question[]> {
   const response = await fetch('/api/solve', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ questions, generateOptions, provider: selected }),
+    body: JSON.stringify({ questions, generateOptions, provider: selected, strong }),
     signal: AbortSignal.timeout(65000),
   });
   const result = await response.json().catch(() => null);
@@ -22,24 +23,27 @@ export async function solveQuestions(
       Number(response.headers.get('retry-after') || result?.retryAfter) || 60,
     );
   if (!result?.questions) throw new Error('Lot incomplet. Reîncearcă.');
-  return questions.map((q) => {
-    const answer = result.questions.find((a: { id: string }) => a.id === q.id);
-    if (!answer) throw new Error('Lot incomplet. Reîncearcă.');
-    const options = q.options.length ? q.options : answer.generatedOptions;
-    return {
-      ...q,
-      language: answer.language,
-      languageConfidence: answer.languageConfidence,
-      options,
-      type: options.length >= 2 ? 'multiple_choice' : 'open',
-      correctOptionIndex: answer.correctOptionIndex,
-      correctAnswer: answer.correctAnswer,
-      answerConfidence: answer.answerConfidence,
-      explanation: answer.explanation,
-      solved: true,
-      reviewed: false,
-    };
-  });
+  return questions
+    .filter((q) => result.questions.filter((a: { id: string }) => a.id === q.id).length === 1)
+    .map((q) => {
+      const answer = result.questions.find((a: { id: string }) => a.id === q.id);
+      if (!answer) throw new Error('Lot incomplet. Reîncearcă.');
+      const options = q.options.length ? q.options : answer.generatedOptions;
+      return {
+        ...q,
+        language: answer.language,
+        languageConfidence: answer.languageConfidence,
+        options,
+        type: options.length >= 2 ? 'multiple_choice' : 'open',
+        correctOptionIndex: answer.correctOptionIndex,
+        correctAnswer: answer.correctAnswer,
+        answerConfidence: answer.answerConfidence,
+        explanation: answer.explanation,
+        solved: true,
+        reviewed: false,
+        strengthened: strong,
+      };
+    });
 }
 export async function processDocument(
   doc: DocumentSet,
@@ -49,6 +53,8 @@ export async function processDocument(
   shouldStop: () => boolean,
   requestIntervalMs = 0,
   profiles?: SolverProfile[],
+  priority?: () => string[],
+  optionsOnly = false,
 ) {
   const configured = profiles?.length
     ? profiles
@@ -64,6 +70,8 @@ export async function processDocument(
     save: putDocument,
     update,
     shouldStop,
+    priority,
+    optionsOnly,
   });
 }
 

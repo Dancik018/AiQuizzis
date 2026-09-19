@@ -13,13 +13,14 @@ export async function POST(req: Request) {
         questions: z.array(questionSchema).min(1).max(40),
         generateOptions: z.boolean().default(false),
         provider: z.enum(['groq', 'gemini', 'openai']).optional(),
+        strong: z.boolean().default(false),
       }),
       350000,
     );
     const selected = data.provider || availableProviders()[0];
     if (!selected || !availableProviders().includes(selected)) throw new Error('AI_MISSING');
     return Response.json({
-      ...(await provider(selected).solve(data.questions, data.generateOptions)),
+      ...(await provider(selected).solve(data.questions, data.generateOptions, data.strong)),
       provider: selected,
     });
   } catch (error) {

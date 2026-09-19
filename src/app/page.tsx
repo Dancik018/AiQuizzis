@@ -32,7 +32,7 @@ import {
 } from '@/lib/model';
 import { getDocuments, getSessions, putDocument, putSession, deleteDocument } from '@/lib/storage';
 import { detectQuestions, combineQuestions } from '@/lib/detection';
-import { createQuiz, results } from '@/lib/quiz';
+import { createQuiz, hydrateQuiz, quizPriority, results } from '@/lib/quiz';
 import { processDocument, analyzeStructure } from '@/lib/processing';
 import type { ExtractionProgress } from '@/lib/extract';
 import type { SolverProfile } from '@/lib/batching';
@@ -74,27 +74,67 @@ export default function Home() {
   const [generateOptions, setGenerateOptions] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const stop = useRef(false);
-  const updateDocument = async (doc: DocumentSet) => {
-    await putDocument(doc);
+  const running = useRef(false);
+  const resumed = useRef(new Set<string>());
+  const sessionsRef = useRef<QuizSession[]>([]);
+  const activeRef = useRef('');
+  const [serviceLoaded, setServiceLoaded] = useState(false);
+  const acceptDocument = (doc: DocumentSet) => {
     setDocuments((old) =>
       old.some((d) => d.id === doc.id)
         ? old.map((d) => (d.id === doc.id ? doc : d))
         : [doc, ...old],
     );
+    let changed = false;
+    const next = sessionsRef.current.map((session) => {
+      const updated = hydrateQuiz(session, doc.questions);
+      if (updated !== session) {
+        changed = true;
+        void putSession(updated).catch(() => setError('Progresul quiz-ului nu a putut fi salvat.'));
+      }
+      return updated;
+    });
+    if (changed) {
+      sessionsRef.current = next;
+      setSessions(next);
+    }
+  };
+  const updateDocument = async (doc: DocumentSet) => {
+    await putDocument(doc);
+    acceptDocument(doc);
   };
   const updateSession = async (session: QuizSession) => {
-    setSessions((old) =>
-      old.some((s) => s.id === session.id)
-        ? old.map((s) => (s.id === session.id ? session : s))
-        : [session, ...old],
-    );
+    const latest = sessionsRef.current.find((s) => s.id === session.id);
+    session = hydrateQuiz(session, latest?.questions || []);
+    const next = sessionsRef.current.some((s) => s.id === session.id)
+      ? sessionsRef.current.map((s) => (s.id === session.id ? session : s))
+      : [session, ...sessionsRef.current];
+    sessionsRef.current = next;
+    setSessions(next);
     await putSession(session);
   };
   useEffect(() => {
     Promise.all([getDocuments(), getSessions()])
       .then(([docs, quizzes]) => {
         setDocuments(docs.sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
-        setSessions(quizzes.sort((a, b) => b.startedAt.localeCompare(a.startedAt)));
+        const restored = quizzes
+          .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
+          .map((s) =>
+            hydrateQuiz(
+              s,
+              docs.flatMap((d) => d.questions),
+            ),
+          );
+        sessionsRef.current = restored;
+        setSessions(restored);
+        try {
+          const active = localStorage.getItem('aiquiz-active');
+          if (active && restored.some((s) => s.id === active && !s.completedAt)) {
+            activeRef.current = active;
+            setSessionId(active);
+            setView('quiz');
+          }
+        } catch {}
       })
       .catch(() =>
         setError(
@@ -104,7 +144,10 @@ export default function Home() {
       .finally(() => setLoaded(true));
     fetch('/api/config')
       .then((r) => r.json())
-      .then(setServices)
+      .then((value) => {
+        setServices(value);
+        setServiceLoaded(true);
+      })
       .catch(() => {});
     try {
       const value = localStorage.getItem('aiquiz-theme');
@@ -128,7 +171,10 @@ export default function Home() {
     } catch {}
     return () => media.removeEventListener('change', apply);
   }, [theme]);
-  const solve = async (doc: DocumentSet) => {
+  const solve = async (doc: DocumentSet, options = generateOptions, optionsOnly = false) => {
+    if (running.current) return;
+    running.current = true;
+    resumed.current.add(doc.id);
     setBusy(true);
     setProcessingId(doc.id);
     stop.current = false;
@@ -137,17 +183,20 @@ export default function Home() {
       await processDocument(
         doc,
         services.batchSize,
-        generateOptions,
-        (changed) => setDocuments((old) => old.map((d) => (d.id === changed.id ? changed : d))),
+        options,
+        acceptDocument,
         () => stop.current,
         services.requestIntervalMs,
         services.providers,
+        () => quizPriority(sessionsRef.current.find((s) => s.id === activeRef.current)),
+        optionsOnly,
       );
     } catch {
       setError('Progresul nu a putut fi salvat. Eliberează spațiu în browser și reîncearcă.');
     } finally {
       setBusy(false);
       setProcessingId('');
+      running.current = false;
     }
   };
   const analyze = async (doc: DocumentSet) => {
@@ -173,6 +222,7 @@ export default function Home() {
     setProgress({ stage: 'Validare document', completed: 0, total: 1 });
     try {
       const { extractFile } = await import('@/lib/extract');
+      const extractionStarted = performance.now();
       const extracted = await extractFile(file, setProgress);
       const id = uid();
       const detected = detectQuestions(extracted.lines, id, file.name);
@@ -184,6 +234,7 @@ export default function Home() {
         lines: extracted.lines,
         pages: extracted.pages,
         status: 'extracted',
+        extractionMs: Math.round(performance.now() - extractionStarted),
       };
       await updateDocument(doc);
       setSelected([id]);
@@ -210,9 +261,14 @@ export default function Home() {
         questions,
         cfg,
         Array.from(new Set(questions.map((q) => q.source))).join(', '),
+        services.ai && questions.some((q) => !ready(q)),
       );
       await updateSession(session);
+      activeRef.current = session.id;
       setSessionId(session.id);
+      try {
+        localStorage.setItem('aiquiz-active', session.id);
+      } catch {}
       setView('quiz');
       setConfigQuestions(null);
       setError('');
@@ -224,12 +280,46 @@ export default function Home() {
     }
   };
   const activeSession = sessions.find((s) => s.id === sessionId);
+  const solveRef = useRef(solve);
+  useEffect(() => {
+    solveRef.current = solve;
+  });
+  useEffect(() => {
+    if (!loaded || !serviceLoaded || !services.ai || busy || running.current) return;
+    const pendingIds = new Set(
+      activeSession?.progressive && !activeSession.completedAt
+        ? activeSession.questions.filter((q) => !ready(q) && !q.solveError).map((q) => q.documentId)
+        : [],
+    );
+    const pending = documents.find(
+      (d) =>
+        !resumed.current.has(d.id) &&
+        (d.status === 'processing' || pendingIds.has(d.id)) &&
+        d.questions.some((q) => needsAnalysis(q) && !q.solveError),
+    );
+    if (pending) void solveRef.current(pending);
+  }, [loaded, serviceLoaded, services.ai, busy, documents, activeSession]);
+  const openSession = (id: string) => {
+    activeRef.current = id;
+    setSessionId(id);
+    setView('quiz');
+    try {
+      localStorage.setItem('aiquiz-active', id);
+    } catch {}
+  };
+  const exitQuiz = () => {
+    setView('documents');
+    activeRef.current = '';
+    try {
+      localStorage.removeItem('aiquiz-active');
+    } catch {}
+  };
   const review = documents.find((d) => d.id === reviewId);
   const available = combineQuestions(
     documents
       .filter((d) => selected.includes(d.id))
       .flatMap((d) => d.questions)
-      .filter(ready),
+      .filter((q) => (services.ai ? q.language !== 'foreign' : ready(q))),
   );
   const unfinished = sessions.find((s) => !s.completedAt);
   const totalQuestions = documents.reduce(
@@ -335,7 +425,16 @@ export default function Home() {
               key={activeSession.id}
               session={activeSession}
               onChange={updateSession}
-              onExit={() => setView('documents')}
+              onExit={exitQuiz}
+              preparation={documents.filter((d) =>
+                activeSession.questions.some((q) => q.documentId === d.id),
+              )}
+              onContinue={() => {
+                const doc = documents.find((d) =>
+                  activeSession.questions.some((q) => q.documentId === d.id && !ready(q)),
+                );
+                if (doc && !running.current) void solve(doc);
+              }}
               onRetry={(qs) => start(qs)}
             />
           ) : view === 'review' && review ? (
@@ -344,6 +443,8 @@ export default function Home() {
               onChange={updateDocument}
               onBack={() => setView('documents')}
               onQuiz={() => setConfigQuestions(review.questions)}
+              onBulk={() => solve({ ...review, processing: undefined }, true, true)}
+              processing={Boolean(processingId)}
             />
           ) : view === 'history' ? (
             <>
@@ -378,8 +479,7 @@ export default function Home() {
                       <b>{s.completedAt ? `${results(s).percent}%` : 'În progres'}</b>
                       <button
                         onClick={() => {
-                          setSessionId(s.id);
-                          setView('quiz');
+                          openSession(s.id);
                         }}
                       >
                         {s.completedAt ? 'Rezultate' : 'Continuă'}
@@ -453,8 +553,7 @@ export default function Home() {
                   <button
                     className="primary"
                     onClick={() => {
-                      setSessionId(unfinished.id);
-                      setView('quiz');
+                      openSession(unfinished.id);
                     }}
                   >
                     Continuă Quiz <ArrowRight size={16} />
@@ -565,7 +664,7 @@ export default function Home() {
                 {selected.length > 0 && (
                   <button
                     className="primary"
-                    disabled={!available.length || busy}
+                    disabled={!available.length}
                     onClick={() => setConfigQuestions(available)}
                   >
                     Generează Quiz · {available.length}
@@ -659,7 +758,9 @@ export default function Home() {
                           doc.status === 'processing') && (
                           <div className="batch-progress" role="status">
                             <div>
-                              <span>Rezolvare întrebări</span>
+                              <span>
+                                Pregătire AI · {accepted} / {doc.questions.length} pregătite
+                              </span>
                               <b>
                                 {solved} / {doc.questions.length}
                               </b>
@@ -749,13 +850,19 @@ export default function Home() {
                               </button>
                             )}
                             <button
-                              disabled={!accepted || busy}
+                              disabled={
+                                accepted <
+                                  Math.min(
+                                    20,
+                                    doc.questions.filter((q) => q.language !== 'foreign').length,
+                                  ) || !accepted
+                              }
                               onClick={() => start(doc.questions)}
                             >
                               <Zap size={16} /> Quiz Rapid
                             </button>
                             <button
-                              disabled={!accepted || busy}
+                              disabled={services.ai ? !doc.questions.length : !accepted}
                               onClick={() => setConfigQuestions(doc.questions)}
                             >
                               Generează Quiz <ArrowRight size={15} />
@@ -789,8 +896,9 @@ export default function Home() {
               </button>
             </div>
             <p>
-              {combineQuestions(configQuestions.filter(ready)).length} întrebări pregătite în
-              documentele selectate.
+              {combineQuestions(configQuestions.filter((q) => q.language !== 'foreign')).length}{' '}
+              întrebări extrase · {configQuestions.filter(ready).length} pregătite. Quiz-ul rezervă
+              toate întrebările selectate; AI continuă în fundal.
             </p>
             <label>
               Număr întrebări

@@ -68,9 +68,9 @@ test('Gemini transport uses server-side headers and validates output, identities
     result = { questions: [answer] };
     assert.equal((await provider().solve(questions, false)).questions[0].correctAnswer, '2');
     result = { questions: [{ ...answer, correctAnswer: 'rewritten option' }] };
-    await assert.rejects(provider().solve(questions, false), /AI_INVALID/);
+    assert.equal((await provider().solve(questions, false)).questions.length, 0);
     result = { questions: [{ ...answer, id: 'invented-id' }] };
-    await assert.rejects(provider().solve(questions, false), /AI_INVALID/);
+    assert.equal((await provider().solve(questions, false)).questions.length, 0);
     globalThis.fetch = async () =>
       Response.json(
         { error: { details: [{ violations: [{ quotaId: 'GenerateRequestsPerDay' }] }] } },
