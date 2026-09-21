@@ -65,13 +65,14 @@ export default function Home() {
   const [services, setServices] = useState({
     ai: false,
     ocr: false,
-    batchSize: 40,
+    batchSize: 50,
+    minReady: 20,
     providers: [] as SolverProfile[],
     provider: 'openai',
     requestIntervalMs: 2000,
   });
   const [theme, setTheme] = useState('system');
-  const [generateOptions, setGenerateOptions] = useState(false);
+  const [generateOptions, setGenerateOptions] = useState(true);
   const input = useRef<HTMLInputElement>(null);
   const stop = useRef(false);
   const running = useRef(false);
@@ -257,11 +258,14 @@ export default function Home() {
   };
   const start = async (questions: Question[], cfg = defaultConfig) => {
     try {
+      const latest = new Map(documents.flatMap((d) => d.questions).map((q) => [q.id, q]));
+      questions = questions.map((q) => (ready(q) ? q : latest.get(q.id) || q));
       const session = createQuiz(
         questions,
         cfg,
         Array.from(new Set(questions.map((q) => q.source))).join(', '),
         services.ai && questions.some((q) => !ready(q)),
+        services.minReady || 20,
       );
       await updateSession(session);
       activeRef.current = session.id;
@@ -853,7 +857,7 @@ export default function Home() {
                               disabled={
                                 accepted <
                                   Math.min(
-                                    20,
+                                    services.minReady || 20,
                                     doc.questions.filter((q) => q.language !== 'foreign').length,
                                   ) || !accepted
                               }

@@ -13,6 +13,7 @@ export function createQuiz(
   config: QuizConfig,
   title: string,
   progressive = false,
+  minReady = 20,
 ): QuizSession {
   let available = combineQuestions(
     questions.filter(
@@ -33,7 +34,9 @@ export function createQuiz(
     questions: structuredClone(available),
     config,
     progressive,
-    bufferStarted: !progressive || available.filter(ready).length >= Math.min(20, available.length),
+    minReady,
+    bufferStarted:
+      !progressive || available.filter(ready).length >= Math.min(minReady, available.length),
     optionOrders: available.map((q) =>
       ready(q)
         ? config.shuffleOptions
@@ -76,7 +79,8 @@ export function hydrateQuiz(session: QuizSession, questions: Question[]): QuizSe
     questions: updated,
     optionOrders,
     bufferStarted:
-      session.bufferStarted || updated.filter(ready).length >= Math.min(20, updated.length),
+      session.bufferStarted ||
+      updated.filter(ready).length >= Math.min(session.minReady || 20, updated.length),
   };
 }
 

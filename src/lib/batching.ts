@@ -5,13 +5,16 @@ export type SolverProfile = {
   tokenBudget: number;
   intervalMs: number;
   concurrency?: number;
+  minReady?: number;
+  model?: string;
 };
 export const defaultProfile = (id: SolverProfile['id']): SolverProfile => ({
   id,
-  maxQuestions: 40,
+  maxQuestions: id === 'openai' ? 50 : 40,
   tokenBudget: id === 'groq' ? 6500 : 16000,
-  intervalMs: id === 'groq' ? 55000 : id === 'gemini' ? 13000 : 2000,
-  concurrency: 1,
+  intervalMs: id === 'groq' ? 55000 : id === 'gemini' ? 13000 : 0,
+  concurrency: id === 'openai' ? 5 : 1,
+  minReady: 20,
 });
 export const estimatedTokens = (q: Question, generate: boolean) =>
   Math.ceil((q.question.length + q.options.join(' ').length + q.id.length + 60) / 2.5) +
@@ -30,7 +33,7 @@ export function planBatches(
       size = new TextEncoder().encode(JSON.stringify(q)).length;
     if (
       batch.length &&
-      (batch.length >= Math.min(40, profile.maxQuestions) ||
+      (batch.length >= Math.min(100, profile.maxQuestions) ||
         tokens + cost > profile.tokenBudget ||
         bytes + size > 300000)
     ) {

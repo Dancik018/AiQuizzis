@@ -127,8 +127,13 @@ test('AI batch failure automatically retries only unfinished items', async ({ pa
   });
   await expect(page.getByText('25 pregătite', { exact: true })).toBeVisible();
   expect(calls).toBe(4);
-  expect(received[2]).toEqual(received[1]);
-  expect(received[2].some((id) => received[0].includes(id))).toBe(false);
+  expect(received[3]).toEqual(received[1]);
+  expect(
+    received
+      .slice(1)
+      .flat()
+      .some((id) => received[0].includes(id)),
+  ).toBe(false);
   await page.getByRole('button', { name: 'Quiz Rapid' }).click();
   await page.locator('.answer').filter({ hasText: /^\w2$/ }).click();
   await page.getByRole('button', { name: 'Verifică', exact: true }).click();

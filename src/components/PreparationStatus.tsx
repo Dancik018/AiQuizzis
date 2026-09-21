@@ -42,9 +42,9 @@ export default function PreparationStatus({
             return (
               <p key={d.id}>
                 {d.name}: extragere {d.extractionMs ?? '—'} ms · {d.questions.length} detectate ·
-                cereri {m?.requests || 0} · întrebări/cerere{' '}
-                {m?.requests ? (m.sent / m.requests).toFixed(1) : '—'} · latență medie{' '}
-                {m?.requests ? Math.round(m.latencyMs / m.requests) : '—'} ms · timp total{' '}
+                cereri {m?.requests || 0} · reutilizate din cache {m?.cacheHits || 0} ·
+                întrebări/cerere {m?.requests ? (m.sent / m.requests).toFixed(1) : '—'} · latență
+                medie {m?.requests ? Math.round(m.latencyMs / m.requests) : '—'} ms · timp total{' '}
                 {Math.round((d.processing?.elapsedMs || 0) / 1000)} s · pauze{' '}
                 {Math.round((m?.waitMs || 0) / 1000)} s · reîncercări {m?.retries || 0} · 429:{' '}
                 {m?.rateLimits || 0} · întrebări/min{' '}
@@ -55,6 +55,13 @@ export default function PreparationStatus({
                 {m?.first20Ms !== undefined
                   ? `${Math.round((m.first20Ms + (d.extractionMs || 0)) / 1000)} s`
                   : '—'}
+                {' · '}Input tokens: {m?.usage?.reduce((sum, u) => sum + u.inputTokens, 0) || 0}
+                {' · '}Output tokens: {m?.usage?.reduce((sum, u) => sum + u.outputTokens, 0) || 0}
+                {' · '}Total tokens: {m?.usage?.reduce((sum, u) => sum + u.totalTokens, 0) || 0}
+                {' · '}Cost estimat OpenAI: $
+                {m?.usage?.reduce((sum, u) => sum + (u.estimatedCostUSD || 0), 0).toFixed(4) || '0'}
+                {' · '}Modele:{' '}
+                {Array.from(new Set(m?.usage?.map((u) => u.model))).join(', ') || '—'}
               </p>
             );
           })}

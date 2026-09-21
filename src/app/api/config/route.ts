@@ -1,5 +1,6 @@
 import { availableProviders } from '@/lib/ai-config';
 import { defaultProfile } from '@/lib/batching';
+import { openAIModel, quizSettings } from '@/lib/server-config';
 export async function GET() {
   let names: ReturnType<typeof availableProviders> = [];
   try {
@@ -7,7 +8,15 @@ export async function GET() {
   } catch {}
   const providers = names.map((id) => ({
     ...defaultProfile(id),
-    concurrency: Math.max(1, Math.min(3, Number(process.env.AI_CONCURRENCY) || 1)),
+    maxQuestions: id === 'openai' ? quizSettings().batchSize : 40,
+    minReady: quizSettings().minReady,
+    model:
+      id === 'openai'
+        ? openAIModel()
+        : id === 'groq'
+          ? process.env.GROQ_MODEL || 'openai/gpt-oss-120b'
+          : process.env.GEMINI_MODEL || 'gemini-3.5-flash',
+    concurrency: id === 'openai' ? quizSettings().concurrency : 1,
     ...(process.env.AI_REQUEST_INTERVAL_MS
       ? {
           intervalMs: Math.min(
@@ -25,7 +34,8 @@ export async function GET() {
     provider: names[0] || 'unconfigured',
     providers,
     requestIntervalMs: providers[0]?.intervalMs || 0,
-    batchSize: 40,
+    batchSize: quizSettings().batchSize,
+    minReady: quizSettings().minReady,
     ocr: true,
     ocrProvider: 'browser',
   });

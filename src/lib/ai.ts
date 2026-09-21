@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { Question } from './model';
+import type { Question, BatchUsage } from './model';
 import { structuredAI } from './structured-ai';
 import type { ProviderName } from './ai-config';
 
@@ -27,7 +27,7 @@ export interface AIProvider {
     questions: Question[],
     generateOptions: boolean,
     strong?: boolean,
-  ): Promise<z.infer<typeof resolutionSchema>>;
+  ): Promise<z.infer<typeof resolutionSchema> & { usage?: BatchUsage }>;
   evaluate(
     question: string,
     expected: string,
@@ -39,6 +39,7 @@ const boundary =
 export class QuizAIProvider implements AIProvider {
   constructor(private selected?: ProviderName) {}
   async solve(questions: Question[], generateOptions: boolean, strong = false) {
+    let usage: BatchUsage | undefined;
     const result = await structuredAI(
       resolutionSchema,
       'question_resolution',
@@ -67,6 +68,9 @@ export class QuizAIProvider implements AIProvider {
       Math.min(12000, 512 + questions.length * (generateOptions ? 220 : 150)),
       this.selected,
       strong,
+      (value) => {
+        usage = { ...value, ids: questions.map((q) => q.id) };
+      },
     );
     const counts = new Map<string, number>();
     result.questions.forEach((item) => counts.set(item.id, (counts.get(item.id) || 0) + 1));
@@ -101,7 +105,7 @@ export class QuizAIProvider implements AIProvider {
       return true;
     });
 
-    return result;
+    return { ...result, usage };
   }
   async evaluate(question: string, expected: string, answer: string) {
     const result = await structuredAI(

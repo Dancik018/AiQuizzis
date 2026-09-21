@@ -97,7 +97,14 @@ test('partial batch saves 19 answers and retries only missing IDs; priority matc
     },
   );
   assert.deepEqual(calls[0], priority.slice(0, 20));
-  assert.deepEqual(calls[1], [priority[19]]);
+  assert.ok(calls.some((ids) => ids.length === 1 && ids[0] === priority[19]));
+  assert.equal(
+    calls
+      .slice(1)
+      .flat()
+      .filter((id) => priority.slice(0, 19).includes(id)).length,
+    0,
+  );
   assert.equal(result.questions.filter(ready).length, 40);
 });
 
@@ -176,4 +183,45 @@ test('bulk options touches only missing options; low-confidence gets one stronge
   assert.equal(passes, 2);
   assert.equal(done.questions[0].strengthened, true);
   assert.ok(ready(done.questions[0]));
+});
+
+test('500 questions use a rolling five-worker pool with stable order and immediate refill', async () => {
+  const d = doc(500);
+  let active = 0,
+    max = 0,
+    calls = 0;
+  const sizes: number[] = [];
+  let slowRunning = false,
+    refilledWhileSlow = false;
+  const result = await runSolverQueue(
+    d,
+    [{ ...defaultProfile('openai'), maxQuestions: 50, concurrency: 5, intervalMs: 0 }],
+    false,
+    {
+      shouldStop: () => false,
+      update: () => {},
+      save: async () => {},
+      solve: async (qs) => {
+        const call = ++calls;
+        sizes.push(qs.length);
+        active++;
+        max = Math.max(max, active);
+        if (call === 2) slowRunning = true;
+        if (call > 6 && slowRunning) refilledWhileSlow = true;
+        await new Promise((r) => setTimeout(r, call === 2 ? 80 : 5));
+        if (call === 2) slowRunning = false;
+        active--;
+        return qs.map(answer);
+      },
+    },
+  );
+  assert.equal(max, 5);
+  assert.ok(refilledWhileSlow);
+  assert.equal(sizes[0], 20);
+  assert.ok(sizes.includes(50));
+  assert.equal(result.questions.filter(ready).length, 500);
+  assert.deepEqual(
+    result.questions.map((q) => q.id),
+    d.questions.map((q) => q.id),
+  );
 });

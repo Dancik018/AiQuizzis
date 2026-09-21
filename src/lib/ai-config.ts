@@ -9,7 +9,13 @@ export type ProviderName = 'groq' | 'gemini' | 'openai';
 export function aiProviderName(): ProviderName {
   const name =
     process.env.AI_PROVIDER?.trim() ||
-    (process.env.GROQ_API_KEY ? 'groq' : process.env.GEMINI_API_KEY ? 'gemini' : 'openai');
+    (process.env.OPENAI_API_KEY
+      ? 'openai'
+      : process.env.GROQ_API_KEY
+        ? 'groq'
+        : process.env.GEMINI_API_KEY
+          ? 'gemini'
+          : 'openai');
   if (name !== 'openai' && name !== 'gemini' && name !== 'groq')
     throw new Error('AI_PROVIDER_INVALID');
   return name;

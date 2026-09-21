@@ -1,18 +1,35 @@
-import { normalize, uid, type DocumentSet, type Question } from './model';
+import { normalize, uid, type DocumentSet, type Question, type SolvedQuestions } from './model';
 import { putDocument } from './storage';
 import { BatchError, runSolverQueue } from './solver-queue';
 import { defaultProfile, type SolverProfile } from './batching';
+import { questionHash, readAnswer, writeAnswer } from './answer-cache';
 
 export async function solveQuestions(
   questions: Question[],
   generateOptions = false,
   selected?: SolverProfile['id'],
   strong = false,
-): Promise<Question[]> {
+  model?: string,
+): Promise<SolvedQuestions> {
+  const keys =
+    model && !strong
+      ? await Promise.all(
+          questions.map((q) => questionHash(q, generateOptions, `${selected}:${model}`)),
+        )
+      : [];
+  const cached = keys.length
+    ? await Promise.all(questions.map((q, i) => readAnswer(keys[i], q)))
+    : [];
+  const pending = questions.filter((_, i) => !cached[i]);
+  if (!pending.length)
+    return Object.assign(
+      cached.filter((q): q is Question => Boolean(q)),
+      { cacheHits: cached.length },
+    );
   const response = await fetch('/api/solve', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ questions, generateOptions, provider: selected, strong }),
+    body: JSON.stringify({ questions: pending, generateOptions, provider: selected, strong }),
     signal: AbortSignal.timeout(65000),
   });
   const result = await response.json().catch(() => null);
@@ -23,7 +40,7 @@ export async function solveQuestions(
       Number(response.headers.get('retry-after') || result?.retryAfter) || 60,
     );
   if (!result?.questions) throw new Error('Lot incomplet. Reîncearcă.');
-  return questions
+  const solved: SolvedQuestions = pending
     .filter((q) => result.questions.filter((a: { id: string }) => a.id === q.id).length === 1)
     .map((q) => {
       const answer = result.questions.find((a: { id: string }) => a.id === q.id);
@@ -44,6 +61,14 @@ export async function solveQuestions(
         strengthened: strong,
       };
     });
+  solved.usage = result.usage;
+  solved.cacheHits = cached.filter(Boolean).length;
+  for (const q of solved) {
+    const index = questions.findIndex((original) => original.id === q.id);
+    if (keys[index]) await writeAnswer(keys[index], q);
+  }
+  solved.push(...cached.filter((q): q is Question => Boolean(q)));
+  return solved;
 }
 export async function processDocument(
   doc: DocumentSet,
@@ -66,7 +91,14 @@ export async function processDocument(
         },
       ];
   return runSolverQueue(doc, configured, generateOptions, {
-    solve: solveQuestions,
+    solve: (qs, generate, selected, strong) =>
+      solveQuestions(
+        qs,
+        generate,
+        selected,
+        strong,
+        configured.find((p) => p.id === selected)?.model,
+      ),
     save: putDocument,
     update,
     shouldStop,

@@ -1,12 +1,35 @@
 import { openDB } from 'idb';
 import type { DocumentSet, QuizSession } from './model';
+let connection: ReturnType<typeof openDB> | undefined;
+let cacheConnection: ReturnType<typeof openDB> | undefined;
 const database = () =>
-  openDB('aiquiz', 1, {
+  (connection ||= openDB('aiquiz', 1, {
     upgrade(db) {
       db.createObjectStore('documents', { keyPath: 'id' });
       db.createObjectStore('sessions', { keyPath: 'id' });
     },
-  });
+    blocking() {
+      void connection?.then((db) => db.close());
+      connection = undefined;
+    },
+  }));
+// Separate database avoids blocking existing document tabs on a version upgrade.
+const cacheDatabase = () =>
+  (cacheConnection ||= openDB('aiquiz-answer-cache', 1, {
+    upgrade(db) {
+      db.createObjectStore('answers');
+    },
+    blocking() {
+      void cacheConnection?.then((db) => db.close());
+      cacheConnection = undefined;
+    },
+  }));
+export async function cachedAnswer(key: string) {
+  return (await cacheDatabase()).get('answers', key);
+}
+export async function cacheAnswer(key: string, answer: unknown) {
+  return (await cacheDatabase()).put('answers', answer, key);
+}
 export async function getDocuments(): Promise<DocumentSet[]> {
   return (await database()).getAll('documents');
 }

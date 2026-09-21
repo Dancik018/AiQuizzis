@@ -2,8 +2,23 @@ import OpenAI from 'openai';
 import { zodTextFormat } from 'openai/helpers/zod';
 import { z } from 'zod';
 import { aiProviderName, apiKey, type ProviderName } from './ai-config';
+import { openAIModel } from './server-config';
+import { estimatedCost } from './pricing';
+import type { BatchUsage } from './model';
 
 type Message = { role: 'system' | 'user'; content: string };
+export function parseStructuredJSON(text: string): unknown {
+  // Repair transport wrappers only; never invent missing content or execute document text.
+  const cleaned = text
+    .replace(/^\uFEFF/, '')
+    .trim()
+    .replace(/^```(?:json)?\s*\n([\s\S]*?)\n```$/i, '$1');
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    throw new Error('AI_INVALID');
+  }
+}
 
 export async function structuredAI<T>(
   schema: z.ZodType<T>,
@@ -12,8 +27,28 @@ export async function structuredAI<T>(
   maxTokens: number,
   selected: ProviderName = aiProviderName(),
   strong = false,
+  onUsage?: (usage: BatchUsage) => void,
 ): Promise<T> {
   let output: unknown;
+  const started = Date.now();
+  const report = (
+    model: string,
+    inputTokens = 0,
+    outputTokens = 0,
+    totalTokens = inputTokens + outputTokens,
+  ) => {
+    const usage = {
+      model,
+      inputTokens,
+      outputTokens,
+      totalTokens,
+      durationMs: Date.now() - started,
+      estimatedCostUSD:
+        selected === 'openai' ? estimatedCost(model, inputTokens, outputTokens) : undefined,
+    };
+    onUsage?.(usage);
+    console.info('ai_usage', JSON.stringify({ provider: selected, task: name, ...usage }));
+  };
   if (selected === 'groq') {
     const key = process.env.GROQ_API_KEY?.trim();
     if (!key) throw new Error('GROQ_MISSING');
@@ -36,22 +71,39 @@ export async function structuredAI<T>(
         json_schema: { name, strict: true, schema: z.toJSONSchema(schema) },
       },
     });
+    report(
+      response.model,
+      response.usage?.prompt_tokens,
+      response.usage?.completion_tokens,
+      response.usage?.total_tokens,
+    );
     if (response.choices[0]?.finish_reason !== 'stop') throw new Error('AI_INVALID');
     try {
-      output = JSON.parse(response.choices[0]?.message.content || '');
+      output = parseStructuredJSON(response.choices[0]?.message.content || '');
     } catch {
       throw new Error('AI_INVALID');
     }
   } else if (selected === 'openai') {
     const client = new OpenAI({ apiKey: apiKey(), timeout: 45000, maxRetries: 0 });
-    const response = await client.responses.parse({
-      model: process.env.AI_MODEL?.trim() || 'gpt-4.1-mini',
+    const model = openAIModel();
+    const response = await client.responses.create({
+      model,
+      ...(/^(gpt-5|gpt-6|o[134])/.test(model)
+        ? { reasoning: { effort: strong ? ('medium' as const) : ('low' as const) } }
+        : {}),
       store: false,
       max_output_tokens: maxTokens,
       input,
       text: { format: zodTextFormat(schema, name) },
     });
-    output = response.output_parsed;
+    report(
+      model,
+      response.usage?.input_tokens,
+      response.usage?.output_tokens,
+      response.usage?.total_tokens,
+    );
+    if (response.status !== 'completed') throw new Error('AI_INVALID');
+    output = parseStructuredJSON(response.output_text || '');
   } else {
     const key = process.env.GEMINI_API_KEY?.trim();
     if (!key) throw new Error('GEMINI_MISSING');
@@ -103,13 +155,20 @@ export async function structuredAI<T>(
       });
     }
     const candidate = json?.candidates?.[0];
+    report(
+      model,
+      json?.usageMetadata?.promptTokenCount,
+      (json?.usageMetadata?.candidatesTokenCount || 0) +
+        (json?.usageMetadata?.thoughtsTokenCount || 0),
+      json?.usageMetadata?.totalTokenCount,
+    );
     if (candidate?.finishReason !== 'STOP') throw new Error('AI_INVALID');
     const text = candidate.content?.parts
       ?.filter((p: { thought?: boolean }) => !p.thought)
       .map((p: { text?: string }) => p.text || '')
       .join('');
     try {
-      output = JSON.parse(text || '');
+      output = parseStructuredJSON(text || '');
     } catch {
       throw new Error('AI_INVALID');
     }

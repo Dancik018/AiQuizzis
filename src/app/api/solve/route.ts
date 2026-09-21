@@ -10,7 +10,7 @@ export async function POST(req: Request) {
     const data = await body(
       req,
       z.object({
-        questions: z.array(questionSchema).min(1).max(40),
+        questions: z.array(questionSchema).min(1).max(100),
         generateOptions: z.boolean().default(false),
         provider: z.enum(['groq', 'gemini', 'openai']).optional(),
         strong: z.boolean().default(false),

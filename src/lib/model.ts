@@ -50,7 +50,7 @@ export type DocumentSet = {
   retryAt?: number;
   extractionMs?: number;
   processing?: {
-    queue: { ids: string[]; provider: number; tries: number }[];
+    queue: { ids: string[]; provider: number; tries: number; readyAt?: number; cap?: number }[];
     elapsedMs: number;
     finished: number;
     workDone: number;
@@ -93,6 +93,7 @@ export type QuizSession = {
   completedAt?: string;
   progressive?: boolean;
   bufferStarted?: boolean;
+  minReady?: number;
 };
 export type ProcessingMetrics = {
   requests: number;
@@ -104,7 +105,19 @@ export type ProcessingMetrics = {
   successful: number;
   recent: { ms: number; count: number }[];
   first20Ms?: number;
+  usage?: BatchUsage[];
+  cacheHits?: number;
 };
+export type BatchUsage = {
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  durationMs: number;
+  ids?: string[];
+  estimatedCostUSD?: number;
+};
+export type SolvedQuestions = Question[] & { usage?: BatchUsage; cacheHits?: number };
 export const normalize = (text: string) =>
   text
     .normalize('NFD')

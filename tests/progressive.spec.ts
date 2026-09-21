@@ -46,16 +46,14 @@ for (const [format, count] of [
       { text: `B. ${i + 2}`, page: 1 },
     ]).flat();
     await page.goto('/');
-    await page
-      .locator('input[type=file]')
-      .setInputFiles({
-        name: `progressive-${count}.${format}`,
-        mimeType:
-          format === 'pdf'
-            ? 'application/pdf'
-            : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        buffer: format === 'pdf' ? await pdfFixture(lines) : docxFixture(lines),
-      });
+    await page.locator('input[type=file]').setInputFiles({
+      name: `progressive-${count}.${format}`,
+      mimeType:
+        format === 'pdf'
+          ? 'application/pdf'
+          : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      buffer: format === 'pdf' ? await pdfFixture(lines) : docxFixture(lines),
+    });
     await expect(page.getByText('20 pregătite', { exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Quiz Rapid', exact: true }).click();
     await expect(page.getByText(`ÎNTREBAREA 1 / ${count}`, { exact: true })).toBeVisible();
@@ -113,6 +111,7 @@ test('manual variants save immediately and bulk generation only sends remaining 
     });
   });
   await page.goto('/');
+  await page.getByLabel('Generează variante pentru întrebările fără opțiuni').uncheck();
   await page.locator('input[type=file]').setInputFiles({
     name: 'options.docx',
     mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -133,7 +132,67 @@ test('manual variants save immediately and bulk generation only sends remaining 
   await expect(page.getByLabel('Varianta B', { exact: true })).toHaveValue('2');
   await page.getByRole('button', { name: 'Închide editorul' }).click();
   await page.getByRole('button', { name: 'Generează variante pentru toate', exact: true }).click();
-  await expect(page.getByText('4 variante', { exact: true })).toHaveCount(2);
+  await expect(page.locator('.row-meta').getByText(/4 variante/)).toHaveCount(2);
   expect(received.length).toBe(2);
   expect(new Set(received).size).toBe(2);
+});
+
+test('exact repeated questions reuse validated local cache across documents', async ({ page }) => {
+  await page.route('**/api/config', (r) =>
+    r.fulfill({
+      json: {
+        ai: true,
+        provider: 'openai',
+        batchSize: 50,
+        minReady: 20,
+        providers: [
+          {
+            id: 'openai',
+            model: 'gpt-5.6-luna',
+            maxQuestions: 50,
+            tokenBudget: 16000,
+            intervalMs: 0,
+            concurrency: 5,
+          },
+        ],
+      },
+    }),
+  );
+  let calls = 0;
+  await page.route('**/api/solve', (r) => {
+    calls++;
+    const body = r.request().postDataJSON();
+    return r.fulfill({
+      json: {
+        questions: body.questions.map((q: { id: string; options: string[] }) => ({
+          id: q.id,
+          language: 'ro',
+          languageConfidence: 1,
+          correctOptionIndex: 1,
+          correctAnswer: q.options[1],
+          generatedOptions: [],
+          answerConfidence: 1,
+          explanation: '',
+        })),
+      },
+    });
+  });
+  const buffer = docxFixture([
+    { text: '1. Care este rezultatul adunarii 1 cu 1?', page: 1 },
+    { text: 'A. 1', page: 1 },
+    { text: 'B. 2', page: 1 },
+  ]);
+  await page.goto('/');
+  for (let i = 0; i < 2; i++) {
+    await page.locator('input[type=file]').setInputFiles({
+      name: `cache-${i}.docx`,
+      mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      buffer,
+    });
+    await expect(page.getByText('1 pregătite', { exact: true })).toHaveCount(i + 1);
+    await expect(
+      page.getByRole('button', { name: 'Selectează fișier', exact: true }),
+    ).toBeEnabled();
+  }
+  expect(calls).toBe(1);
 });

@@ -305,7 +305,8 @@ export default function QuizPlayer({
               </p>
               {!session.bufferStarted && (
                 <p>
-                  Pregătim bufferul inițial de {Math.min(20, session.questions.length)} întrebări.
+                  Pregătim bufferul inițial de{' '}
+                  {Math.min(session.minReady || 20, session.questions.length)} întrebări.
                 </p>
               )}
               {(q.solveError || (q.solved && !ready(q))) && (

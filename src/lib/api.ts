@@ -98,7 +98,7 @@ export function apiError(error: unknown) {
     );
   if (status === 404 || upstreamCode === 'model_not_found')
     return failure(
-      'Modelul AI configurat nu este disponibil pentru acest proiect. Verifică GROQ_MODEL, GEMINI_MODEL sau AI_MODEL în Vercel și accesul la model, apoi redeploy.',
+      'Modelul AI configurat nu este disponibil pentru acest proiect. Verifică OPENAI_MODEL (sau GROQ_MODEL/GEMINI_MODEL) în Vercel și accesul contului la model, apoi redeploy.',
       'AI_MODEL',
     );
   if (
