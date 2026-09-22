@@ -275,3 +275,63 @@ test('generated options are cached after independent verification without repeat
   }
   expect(calls).toBe(2);
 });
+
+test('upload before delayed AI configuration starts automatically when configuration arrives', async ({
+  page,
+}) => {
+  let release!: () => void;
+  const configReady = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route('**/api/config', async (r) => {
+    await configReady;
+    await r.fulfill({
+      json: {
+        ai: true,
+        provider: 'openai',
+        batchSize: 50,
+        requestIntervalMs: 0,
+        providers: [
+          { id: 'openai', maxQuestions: 50, tokenBudget: 16000, intervalMs: 0, concurrency: 5 },
+        ],
+      },
+    });
+  });
+  let calls = 0;
+  await page.route('**/api/solve', (r) => {
+    calls++;
+    const body = r.request().postDataJSON();
+    return r.fulfill({
+      json: {
+        questions: body.questions.map((q: Record<string, unknown>) => ({
+          ...q,
+          status: 'verified',
+          solved: true,
+          reviewed: false,
+          language: 'ro',
+          languageConfidence: 1,
+          correctOptionIndex: 1,
+          correctOptionIndices: [1],
+          correctAnswer: '2',
+          answerConfidence: 1,
+          explanation: '',
+        })),
+      },
+    });
+  });
+  await page.goto('/');
+  await page.locator('input[type=file]').setInputFiles({
+    name: 'delayed-config.docx',
+    mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    buffer: docxFixture([
+      { text: '1. Care este rezultatul adunării 1 cu 1?', page: 1 },
+      { text: 'A. 1', page: 1 },
+      { text: 'B. 2', page: 1 },
+    ]),
+  });
+  await expect(page.getByText('delayed-config.docx', { exact: true })).toBeVisible();
+  expect(calls).toBe(0);
+  release();
+  await expect(page.getByText('1 pregătite', { exact: true })).toBeVisible();
+  expect(calls).toBe(1);
+});

@@ -302,7 +302,8 @@ export default function Home() {
     const pending = documents.find(
       (d) =>
         !resumed.current.has(d.id) &&
-        (d.status === 'processing' ||
+        (d.status === 'extracted' ||
+          d.status === 'processing' ||
           pendingIds.has(d.id) ||
           d.questions.some((q) => q.rawSourceText && q.status === 'parsing')) &&
         d.questions.some((q) => needsAnalysis(q) && !q.solveError),
