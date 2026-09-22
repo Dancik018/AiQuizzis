@@ -110,3 +110,61 @@ test('independent verifier disagreement invokes judge; only validated answers be
     else process.env.OPENAI_API_KEY = oldKey;
   }
 });
+
+test('generated option indices are reconciled with answer text and independently verified', async () => {
+  const oldFetch = globalThis.fetch,
+    oldKey = process.env.OPENAI_API_KEY;
+  process.env.OPENAI_API_KEY = 'sk-test-only';
+  const q = detectQuestions(
+    [{ text: 'Care este rezultatul adunării 86 cu 1?', page: 1 }],
+    'index',
+    'index.pdf',
+  ).questions[0];
+  let invalid = false;
+  try {
+    globalThis.fetch = async (_url, init) => {
+      const request = JSON.parse(String(init?.body));
+      const input = JSON.parse(request.input[1].content).untrustedQuestions[0];
+      assert.equal(input.id, 'q0');
+      const item = {
+        id: input.id,
+        question: '',
+        type: 'multiple_choice',
+        language: 'ro',
+        languageConfidence: 1,
+        correctOptionIndices: [1],
+        correctAnswer: invalid ? '999' : '87',
+        generatedOptions: ['85', '86', '87', '88'],
+        answerConfidence: 1,
+        explanation: '',
+        answerLeakage: false,
+        needsVerification: false,
+      };
+      return Response.json({
+        id: 'test',
+        object: 'response',
+        status: 'completed',
+        output: [
+          {
+            type: 'message',
+            role: 'assistant',
+            content: [
+              { type: 'output_text', text: JSON.stringify({ questions: [item] }), annotations: [] },
+            ],
+          },
+        ],
+      });
+    };
+    const result = (await provider().solve([q], true)).questions[0];
+    assert.equal(result.correctAnswer, '87');
+    assert.deepEqual(result.correctOptionIndices, [2]);
+    assert.equal(result.status, 'verifying');
+    assert.equal(ready(result), false);
+    invalid = true;
+    assert.equal((await provider().solve([q], true)).questions.length, 0);
+  } finally {
+    globalThis.fetch = oldFetch;
+    if (oldKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = oldKey;
+  }
+});

@@ -19,15 +19,15 @@ export async function solveQuestions(
   strong = false,
   model?: string,
 ): Promise<SolvedQuestions> {
-  const keys =
-    model && !strong
-      ? await Promise.all(
-          questions.map((q) => questionHash(q, generateOptions, `${selected}:${model}`)),
-        )
-      : [];
-  const cached = keys.length
-    ? await Promise.all(questions.map((q, i) => readAnswer(keys[i], q)))
+  const keys = model
+    ? await Promise.all(
+        questions.map((q) => questionHash(q, generateOptions, `${selected}:${model}`)),
+      )
     : [];
+  const cached =
+    keys.length && !strong
+      ? await Promise.all(questions.map((q, i) => readAnswer(keys[i], q)))
+      : [];
   const pending = questions.filter((_, i) => !cached[i]);
   if (!pending.length)
     return Object.assign(
@@ -67,7 +67,19 @@ export async function solveQuestions(
   solved.cacheHits = cached.filter(Boolean).length;
   for (const q of solved) {
     const index = questions.findIndex((original) => original.id === q.id);
-    if (keys[index]) await writeAnswer(keys[index], q);
+    if (keys[index]) {
+      await writeAnswer(keys[index], q);
+      // A verification request contains generated options; also cache by the original open input.
+      if (
+        (generateOptions && q.originalOptions.length === 0 && q.verification === 'independent') ||
+        (generateOptions && q.originalOptions.length === 0 && q.verification === 'judge')
+      ) {
+        await writeAnswer(
+          await questionHash({ ...q, options: [] }, generateOptions, `${selected}:${model}`),
+          q,
+        );
+      }
+    }
   }
   solved.push(...cached.filter((q): q is Question => Boolean(q)));
   return solved;

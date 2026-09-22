@@ -49,7 +49,7 @@ export default function PreparationStatus({
                 {Math.round((m?.waitMs || 0) / 1000)} s · reîncercări {m?.retries || 0} · 429:{' '}
                 {m?.rateLimits || 0} · întrebări/min{' '}
                 {d.processing?.elapsedMs && m
-                  ? ((m.successful * 60000) / d.processing.elapsedMs).toFixed(1)
+                  ? ((d.questions.filter(ready).length * 60000) / d.processing.elapsedMs).toFixed(1)
                   : '—'}{' '}
                 · primele 20{' '}
                 {m?.first20Ms !== undefined

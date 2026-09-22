@@ -34,7 +34,7 @@ export class QuizAIProvider {
   constructor(private selected?: ProviderName) {}
   async solve(questions: Question[], generateOptions: boolean, strong = false) {
     questions = questions.map(sanitizeQuestion);
-    const aliases = new Map(questions.map((q, i) => [String(i), q]));
+    const aliases = new Map(questions.map((q, i) => [`q${i}`, q]));
     let usage: BatchUsage | undefined;
     const result = await structuredAI(
       resolutionSchema,
@@ -46,14 +46,14 @@ export class QuizAIProvider {
             boundary +
             `
 For every ID return exactly one item. Separate QUESTION, ANSWER and EXPLANATION. If the supplied question is already clean, return question="" to keep it unchanged without copying it. Only return nonempty question when repair is needed; it must contain ONLY the complete question for the student, never its answer or answer-key markers. Repair an embedded answer (e.g. 'Ce este X? X este...' => question='Ce este X?'). Preserve essential context; do not shorten multi-part prompts incorrectly. Independently check semantic answer leakage, including paraphrases. Set answerLeakage=true if you cannot safely remove it without changing the meaning. Never use unknown/probably/needs verification as answers.
-Existing options must remain verbatim and in original order: generatedOptions=[]; choose zero-based correctOptionIndices. Detect CM/select-all/multiple-correct questions, not only single-choice. For ALL questions with options (original OR generated) leave correctAnswer empty; the server copies the selected option. For open questions return a concise answer. ${generateOptions ? 'For NO existing options generate exactly four distinct plausible Romanian options with one correct answer. Distractors must be same-domain, parallel grammar, objectively incorrect; no synonyms, overlapping true options or answers nested in other options.' : 'Do not generate options for open questions.'}
+Existing options must remain verbatim and in original order: generatedOptions=[]; choose zero-based correctOptionIndices. Detect CM/select-all/multiple-correct questions, not only single-choice. For ALL questions with options return correctAnswer as the exact selected option text (join multiple selected texts with semicolon and space in original order). Check that the zero-based indices select exactly this answer. Compute the answer before constructing distractors; never confuse an option position with an answer. For open questions return a concise answer. ${generateOptions ? 'For NO existing options generate exactly four distinct plausible Romanian options with one correct answer. Distractors must be same-domain, parallel grammar, objectively incorrect; no synonyms, overlapping true options or answers nested in other options.' : 'Do not generate options for open questions.'}
 Each item has a stage: solver, verifier or judge. Solver may use sourceAnswer as evidence, but verify it rather than trusting it blindly. Verifier must solve INDEPENDENTLY from question/options; no prior answer is provided. Judge compares independent candidates and determines a final justified answer, or needsVerification=true if unresolved. Check medical/anatomical/technical accuracy and multiple valid options. Do not force a single answer to a genuinely multiple-answer question. Return explanation empty except a brief decisive judge justification. Never copy answer/explanation into question.`,
         },
         {
           role: 'user',
           content: JSON.stringify({
             untrustedQuestions: questions.map((q, i) => ({
-              id: String(i),
+              id: `q${i}`,
               question: q.question,
               options: q.options,
               stage:
@@ -82,10 +82,19 @@ Each item has a stage: solver, verifier or judge. Solver may use sourceAnswer as
       if (!q || counts.get(item.id) !== 1) continue;
       const clean = normalizeQuestion(item.question || q.question);
       const options = q.options.length ? q.options : item.generatedOptions;
-      const indices = [...new Set(item.correctOptionIndices)].sort((a, b) => a - b);
+      let indices = [...new Set(item.correctOptionIndices)].sort((a, b) => a - b);
+      // Match generated answers by text: model indices can accidentally be one-based.
+      if (!q.options.length && options.length) {
+        const matches = options.flatMap((o, i) =>
+          normalize(o) === normalize(item.correctAnswer) ? [i] : [],
+        );
+        if (matches.length !== 1) continue;
+        indices = matches;
+      }
       const answer = options.length
         ? indices.map((i) => options[i]).join('; ')
         : item.correctAnswer;
+      if (options.length && normalize(answer) !== normalize(item.correctAnswer)) continue;
       const optionKeys = options.map(normalize);
       const nested =
         !q.options.length &&
@@ -137,7 +146,11 @@ Each item has a stage: solver, verifier or judge. Solver may use sourceAnswer as
         item.answerConfidence < 0.9 ||
         item.language !== 'ro' ||
         item.languageConfidence < 0.8 ||
-        (!previous && (risky || Boolean(q.rawSourceText) || Boolean(q.sourceAnswer))) ||
+        (!previous &&
+          (risky ||
+            (!q.options.length && generateOptions) ||
+            Boolean(q.rawSourceText) ||
+            Boolean(q.sourceAnswer))) ||
         (passes.length === 2 && !agrees);
       const status = needs ? (passes.length >= 3 ? 'failed' : 'verifying') : 'verified';
       const solved: Question = {

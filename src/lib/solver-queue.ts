@@ -171,7 +171,17 @@ export async function runSolverQueue(
         last.tries === item.tries &&
         last.readyAt === item.readyAt &&
         last.cap === item.cap &&
-        last.ids.length < Math.min(item.cap || 100, profiles[item.provider]?.maxQuestions || 40)
+        last.ids.length <
+          Math.min(
+            item.cap || 100,
+            profiles[item.provider]?.maxQuestions || 40,
+            generate &&
+              [...last.ids, ...item.ids].some(
+                (id) => !current.questions.find((q) => q.id === id)?.options.length,
+              )
+              ? profiles[item.provider]?.generationBatchSize || 16
+              : 100,
+          )
       )
         last.ids.push(...item.ids);
       else regrouped.push(item);
@@ -243,9 +253,9 @@ export async function runSolverQueue(
   const execute = async (job: Job) => {
     const profile = profiles[job.provider];
     const questions = job.ids.map((id) => current.questions.find((q) => q.id === id)!);
-    const strong = questions.some(
-      (q) => q.status === 'verifying' || (q.solved && !ready(q) && !q.strengthened),
-    );
+    const strong =
+      job.tries > 0 ||
+      questions.some((q) => q.status === 'verifying' || (q.solved && !ready(q) && !q.strengthened));
     const requestStarted = now();
     metrics.requests++;
     metrics.sent += questions.length;
@@ -275,11 +285,14 @@ export async function runSolverQueue(
         if (solved.length) {
           current.error = undefined;
           metrics.successful += solved.length;
-          metrics.recent = [
-            ...metrics.recent,
-            { ms: now() - lastSuccess, count: solved.length },
-          ].slice(-5);
-          lastSuccess = now();
+          const newlyReady = solved.filter(ready).length;
+          if (newlyReady) {
+            metrics.recent = [
+              ...metrics.recent,
+              { ms: now() - lastSuccess, count: newlyReady },
+            ].slice(-5);
+            lastSuccess = now();
+          }
           rates[job.provider] = 0;
           if (
             metrics.first20Ms === undefined &&

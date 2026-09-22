@@ -3,7 +3,7 @@ import { questionSchema, ready, type Question } from './model';
 export async function questionHash(q: Question, generate: boolean, model: string) {
   const bytes = new TextEncoder().encode(
     JSON.stringify([
-      'quiz-verified-v3',
+      'quiz-verified-v4',
       model,
       generate,
       q.question,
