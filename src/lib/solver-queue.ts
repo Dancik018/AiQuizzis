@@ -182,6 +182,33 @@ export async function runSolverQueue(
     const code = error instanceof BatchError ? error.code : 'PROVIDER_ERROR';
     metrics.retries++;
     current.error = error instanceof Error ? error.message : 'Lot eșuat.';
+    if (job.ids.length === 1 && ['INVALID_INPUT', 'TOO_LARGE'].includes(code)) {
+      current.questions = current.questions.map((q) =>
+        q.id === job.ids[0]
+          ? { ...q, solved: true, strengthened: true, status: 'failed', solveError: current.error }
+          : q,
+      );
+      remove(job);
+      return;
+    }
+    if (
+      ['TOO_LARGE', 'AI_TIMEOUT', 'AI_INCOMPLETE', 'INVALID_INPUT', 'AI_INVALID'].includes(code) &&
+      job.ids.length > 1
+    ) {
+      const half = Math.ceil(job.ids.length / 2);
+      const index = jobs.indexOf(job);
+      jobs.splice(
+        index,
+        1,
+        ...[job.ids.slice(0, half), job.ids.slice(half)].map((ids) => ({
+          ids,
+          provider: 0,
+          tries: 0,
+          cap: half,
+        })),
+      );
+      return;
+    }
     if (
       [
         'AI_QUOTA',
@@ -191,6 +218,7 @@ export async function runSolverQueue(
         'AI_MODEL',
         'AI_CONFIG',
         'AI_KEY_FORMAT',
+        'CLIENT_OUTDATED',
       ].includes(code)
     ) {
       disabled.add(job.provider);
@@ -268,7 +296,7 @@ export async function runSolverQueue(
               q.language !== 'foreign',
           );
           if (low.length)
-            jobs.push({ ids: low.map((q) => q.id), provider: job.provider, tries: 0 });
+            jobs.unshift({ ids: low.map((q) => q.id), provider: job.provider, tries: 0 });
         }
         if (!job.ids.length) remove(job);
         else recover(job, new BatchError('Se reîncearcă doar răspunsurile lipsă.', 'AI_INVALID'));
@@ -405,7 +433,7 @@ export async function runSolverQueue(
     if (fatal) throw fatal;
     current.status = jobs.length || current.questions.some(needsAnalysis) ? 'partial' : 'ready';
     current.error = stoppedForQuota
-      ? 'OpenAI este indisponibil sau are cota epuizată. Progresul și loturile rămase sunt salvate.'
+      ? `${current.error || 'OpenAI este indisponibil sau are cota epuizată.'} Progresul și loturile rămase sunt salvate.`
       : jobs.length
         ? 'Procesare oprită. Poți continua de unde ai rămas.'
         : current.questions.some((q) => q.solveError)

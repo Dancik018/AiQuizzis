@@ -2,7 +2,12 @@ import { z } from 'zod';
 import { normalize, ready, type Question, type BatchUsage } from './model';
 import { structuredAI } from './structured-ai';
 import type { ProviderName } from './ai-config';
-import { normalizeQuestion, detectAnswerLeakage, invalidAnswer } from './question-safety';
+import {
+  normalizeQuestion,
+  sanitizeQuestion,
+  detectAnswerLeakage,
+  invalidAnswer,
+} from './question-safety';
 const itemSchema = z.object({
   id: z.string(),
   question: z.string(),
@@ -28,6 +33,8 @@ const boundary =
 export class QuizAIProvider {
   constructor(private selected?: ProviderName) {}
   async solve(questions: Question[], generateOptions: boolean, strong = false) {
+    questions = questions.map(sanitizeQuestion);
+    const aliases = new Map(questions.map((q, i) => [String(i), q]));
     let usage: BatchUsage | undefined;
     const result = await structuredAI(
       resolutionSchema,
@@ -38,15 +45,15 @@ export class QuizAIProvider {
           content:
             boundary +
             `
-For every ID return exactly one item. Separate QUESTION, ANSWER and EXPLANATION. question must contain ONLY the complete question for the student, never its answer or answer-key markers. Repair an embedded answer (e.g. 'Ce este X? X este...' => question='Ce este X?'). Preserve essential context; do not shorten multi-part prompts incorrectly. Independently check semantic answer leakage, including paraphrases. Set answerLeakage=true if you cannot safely remove it without changing the meaning. Never use unknown/probably/needs verification as answers.
-Existing options must remain verbatim and in original order: generatedOptions=[]; choose zero-based correctOptionIndices. Detect CM/select-all/multiple-correct questions, not only single-choice. For existing options leave correctAnswer empty (server copies selected options). For open questions return a concise answer. ${generateOptions ? 'For NO existing options generate exactly four distinct plausible Romanian options with one correct answer. Distractors must be same-domain, parallel grammar, objectively incorrect; no synonyms, overlapping true options or answers nested in other options.' : 'Do not generate options for open questions.'}
+For every ID return exactly one item. Separate QUESTION, ANSWER and EXPLANATION. If the supplied question is already clean, return question="" to keep it unchanged without copying it. Only return nonempty question when repair is needed; it must contain ONLY the complete question for the student, never its answer or answer-key markers. Repair an embedded answer (e.g. 'Ce este X? X este...' => question='Ce este X?'). Preserve essential context; do not shorten multi-part prompts incorrectly. Independently check semantic answer leakage, including paraphrases. Set answerLeakage=true if you cannot safely remove it without changing the meaning. Never use unknown/probably/needs verification as answers.
+Existing options must remain verbatim and in original order: generatedOptions=[]; choose zero-based correctOptionIndices. Detect CM/select-all/multiple-correct questions, not only single-choice. For ALL questions with options (original OR generated) leave correctAnswer empty; the server copies the selected option. For open questions return a concise answer. ${generateOptions ? 'For NO existing options generate exactly four distinct plausible Romanian options with one correct answer. Distractors must be same-domain, parallel grammar, objectively incorrect; no synonyms, overlapping true options or answers nested in other options.' : 'Do not generate options for open questions.'}
 Each item has a stage: solver, verifier or judge. Solver may use sourceAnswer as evidence, but verify it rather than trusting it blindly. Verifier must solve INDEPENDENTLY from question/options; no prior answer is provided. Judge compares independent candidates and determines a final justified answer, or needsVerification=true if unresolved. Check medical/anatomical/technical accuracy and multiple valid options. Do not force a single answer to a genuinely multiple-answer question. Return explanation empty except a brief decisive judge justification. Never copy answer/explanation into question.`,
         },
         {
           role: 'user',
           content: JSON.stringify({
-            untrustedQuestions: questions.map((q) => ({
-              id: q.id,
+            untrustedQuestions: questions.map((q, i) => ({
+              id: String(i),
               question: q.question,
               options: q.options,
               stage:
@@ -54,7 +61,7 @@ Each item has a stage: solver, verifier or judge. Solver may use sourceAnswer as
               ...((q.passes?.length || 0) >= 2
                 ? { candidates: q.passes }
                 : !q.passes?.length
-                  ? { sourceAnswer: q.sourceAnswer, rawSourceText: q.rawSourceText }
+                  ? { sourceAnswer: q.sourceAnswer }
                   : {}),
             })),
           }),
@@ -71,9 +78,9 @@ Each item has a stage: solver, verifier or judge. Solver may use sourceAnswer as
     result.questions.forEach((a) => counts.set(a.id, (counts.get(a.id) || 0) + 1));
     const output: Question[] = [];
     for (const item of result.questions) {
-      const q = questions.find((q) => q.id === item.id);
+      const q = aliases.get(item.id);
       if (!q || counts.get(item.id) !== 1) continue;
-      const clean = normalizeQuestion(item.question);
+      const clean = normalizeQuestion(item.question || q.question);
       const options = q.options.length ? q.options : item.generatedOptions;
       const indices = [...new Set(item.correctOptionIndices)].sort((a, b) => a - b);
       const answer = options.length

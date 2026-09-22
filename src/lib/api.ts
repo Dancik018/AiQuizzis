@@ -41,7 +41,7 @@ export function apiError(error: unknown) {
     typeof error === 'object' && error && 'code' in error ? String(error.code) : '';
   const failure = (message: string, code: string, status = 503) =>
     Response.json({ error: message, code }, { status });
-  if (status === 413 || upstreamCode === 'context_length_exceeded')
+  if (code === 'TOO_LARGE' || status === 413 || upstreamCode === 'context_length_exceeded')
     return failure('Lotul este prea mare. Va fi împărțit automat.', 'TOO_LARGE', 413);
   if (upstreamCode === 'DAILY_QUOTA')
     return failure(
@@ -121,12 +121,32 @@ export function apiError(error: unknown) {
     );
   }
   if (code === 'ORIGIN') return Response.json({ error: 'Origine nepermisă.' }, { status: 403 });
-  if (
-    error instanceof z.ZodError ||
-    error instanceof SyntaxError ||
-    ['INVALID', 'TOO_LARGE'].includes(code)
-  )
-    return Response.json({ error: 'Date invalide sau prea mari.' }, { status: 400 });
+  if (error instanceof z.ZodError) {
+    const fields = [...new Set(error.issues.map((i) => i.path.join('.')))].slice(0, 5);
+    return Response.json(
+      {
+        error: fields.includes('provider')
+          ? 'Actualizează pagina pentru noua versiune OpenAI. Documentele și progresul sunt salvate.'
+          : `Un item conține date nevalide (${fields.join(', ')}). Lotul va fi împărțit automat; celelalte întrebări continuă.`,
+        code: fields.includes('provider') ? 'CLIENT_OUTDATED' : 'INVALID_INPUT',
+      },
+      { status: 400 },
+    );
+  }
+  if (error instanceof SyntaxError || ['INVALID', 'TOO_LARGE'].includes(code))
+    return Response.json(
+      {
+        error: 'Cererea nu conține date JSON valide. Actualizează pagina și reîncearcă.',
+        code: 'INVALID_INPUT',
+      },
+      { status: 400 },
+    );
+  if (code === 'AI_INCOMPLETE')
+    return failure(
+      'Răspunsul AI a atins limita de ieșire. Lotul va fi micșorat automat.',
+      code,
+      502,
+    );
   return Response.json(
     {
       error:

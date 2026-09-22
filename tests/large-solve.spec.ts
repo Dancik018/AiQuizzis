@@ -60,7 +60,7 @@ for (const format of ['pdf', 'docx'] as const) {
     });
     await expect(page.getByText('450 pregătite', { exact: true })).toBeVisible({ timeout: 60000 });
     expect(ids.size).toBe(450);
-    expect(Math.max(...sizes)).toBeGreaterThanOrEqual(20);
+    expect(Math.max(...sizes)).toBeGreaterThanOrEqual(16);
     expect(Math.max(...sizes)).toBeLessThanOrEqual(40);
     expect(sizes.reduce((a, b) => a + b, 0)).toBe(450);
     await page.reload();

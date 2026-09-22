@@ -7,6 +7,7 @@ export type SolverProfile = {
   concurrency?: number;
   minReady?: number;
   model?: string;
+  generationBatchSize?: number;
 };
 export const defaultProfile = (id: SolverProfile['id']): SolverProfile => ({
   id,
@@ -15,6 +16,7 @@ export const defaultProfile = (id: SolverProfile['id']): SolverProfile => ({
   intervalMs: 0,
   concurrency: 5,
   minReady: 20,
+  generationBatchSize: 16,
 });
 export const estimatedTokens = (q: Question, generate: boolean) =>
   Math.ceil((q.question.length + q.options.join(' ').length + q.id.length + 60) / 2.5) +
@@ -33,7 +35,14 @@ export function planBatches(
       size = new TextEncoder().encode(JSON.stringify(q)).length;
     if (
       batch.length &&
-      (batch.length >= Math.min(100, profile.maxQuestions) ||
+      (batch.length >=
+        Math.min(
+          100,
+          profile.maxQuestions,
+          generate && (q.options.length === 0 || batch.some((item) => item.options.length === 0))
+            ? profile.generationBatchSize || 16
+            : 100,
+        ) ||
         tokens + cost > profile.tokenBudget ||
         bytes + size > 300000)
     ) {

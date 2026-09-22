@@ -98,7 +98,7 @@ test('daily quota stops without retrying or losing the saved document', async ({
   });
   await page.goto('/');
   await page.locator('input[type=file]').setInputFiles(document);
-  await expect(page.getByText(/OpenAI este indisponibil/)).toBeVisible();
+  await expect(page.getByText(/Progresul și loturile rămase sunt salvate/)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Reîncearcă loturile rămase' })).toBeEnabled();
   await page.reload();
   await expect(page.getByText('retry.docx', { exact: true })).toBeVisible();

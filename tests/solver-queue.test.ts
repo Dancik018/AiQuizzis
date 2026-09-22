@@ -163,3 +163,59 @@ test('explicit retry resets exhausted semantic passes only for failed questions'
   });
   assert.equal(result.questions[0].status, 'verified');
 });
+
+test('first-buffer verification runs before new solver batches', async () => {
+  const doc = document();
+  doc.questions = doc.questions.slice(0, 60);
+  const first = doc.questions.slice(0, 20).map((q) => q.id);
+  let calls = 0;
+  const result = await runSolverQueue(doc, [defaultProfile('openai')], false, {
+    shouldStop: () => false,
+    update: () => {},
+    save: async () => {},
+    solve: async (qs, _, _provider, strong) => {
+      calls++;
+      if (calls === 1)
+        return qs.map((q) => ({ ...solved(q), status: 'verifying' as const, strengthened: false }));
+      if (calls === 2) {
+        assert.deepEqual(
+          qs.map((q) => q.id),
+          first,
+        );
+        assert.equal(strong, true);
+      }
+      return qs.map((q) => ({ ...solved(q), status: 'verified' as const, strengthened: true }));
+    },
+  });
+  assert.equal(result.questions.filter((q) => q.status === 'verified').length, 60);
+});
+
+test('generation respects measured latency budget; timeouts split immediately', async () => {
+  const doc = document();
+  doc.questions = doc.questions.slice(0, 20);
+  const batches = planBatches(
+    doc.questions.map((q) => ({ ...q, options: [] })),
+    defaultProfile('openai'),
+    true,
+  );
+  assert.ok(batches.every((qs) => qs.length <= 16));
+  assert.equal(batches.flat().length, 20);
+  const sizes: number[] = [];
+  let waits = 0;
+  const result = await runSolverQueue(doc, [defaultProfile('openai')], false, {
+    shouldStop: () => false,
+    update: () => {},
+    save: async () => {},
+    sleep: async () => {
+      waits++;
+    },
+    solve: async (qs) => {
+      sizes.push(qs.length);
+      if (sizes.length === 1) throw new BatchError('timeout', 'AI_TIMEOUT');
+      return qs.map(solved);
+    },
+  });
+  assert.deepEqual(sizes, [20, 10, 10]);
+  assert.equal(waits, 0);
+  assert.equal(result.questions.filter((q) => q.solved).length, 20);
+});

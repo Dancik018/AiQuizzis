@@ -2,6 +2,21 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { apiError } from '../src/lib/api';
 import { apiKey } from '../src/lib/ai-config';
+import { z } from 'zod';
+
+test('oversized requests split with 413 and invalid fields have safe actionable errors', async () => {
+  const oversized = apiError(new Error('TOO_LARGE'));
+  assert.equal(oversized.status, 413);
+  assert.equal((await oversized.json()).code, 'TOO_LARGE');
+  const input = z.object({ provider: z.literal('openai') }).safeParse({ provider: 'old-version' });
+  assert.equal(input.success, false);
+  if (!input.success) {
+    const error = await apiError(input.error).json();
+    assert.equal(error.code, 'CLIENT_OUTDATED');
+    assert.match(error.error, /Actualizează/);
+    assert.ok(!JSON.stringify(error).includes('old-version'));
+  }
+});
 
 test('provider failures explain recovery without leaking upstream secrets', async () => {
   for (const [status, code, expected] of [

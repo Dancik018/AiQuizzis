@@ -66,7 +66,7 @@ test('independent verifier disagreement invokes judge; only validated answers be
       }
       if (calls === 3) assert.equal(input.candidates.length, 2);
       const item = {
-        id: q.id,
+        id: input.id,
         question: q.question,
         type: 'open',
         language: 'ro',

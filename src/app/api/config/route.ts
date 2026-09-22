@@ -9,6 +9,7 @@ export async function GET() {
     concurrency: settings.concurrency,
     minReady: settings.minReady,
     model: openAIModel(),
+    generationBatchSize: settings.generationBatchSize,
   };
   return Response.json({
     ai: aiConfigured(),

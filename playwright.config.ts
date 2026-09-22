@@ -12,6 +12,7 @@ export default defineConfig({
     trace: 'retain-on-failure',
   },
   webServer: {
+    env: { OPENAI_API_KEY: '' },
     command: 'npm start',
     url: 'http://localhost:3000',
     reuseExistingServer: !process.env.CI,

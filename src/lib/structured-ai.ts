@@ -66,7 +66,7 @@ export async function structuredAI<T>(
     response.usage?.output_tokens,
     response.usage?.total_tokens,
   );
-  if (response.status !== 'completed') throw new Error('AI_INVALID');
+  if (response.status !== 'completed') throw new Error('AI_INCOMPLETE');
   const output = parseStructuredJSON(response.output_text || '');
   const parsed = schema.safeParse(output);
   if (!parsed.success) throw new Error('AI_INVALID');
