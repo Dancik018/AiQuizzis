@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { positiveInt } from './server-config';
 // Best-effort per-instance protection; configure Vercel Firewall rate limits for distributed enforcement.
 const requests = new Map<string, { count: number; reset: number }>();
 export async function body<T>(req: Request, schema: z.ZodType<T>, max = 150000): Promise<T> {
@@ -9,7 +10,11 @@ export async function body<T>(req: Request, schema: z.ZodType<T>, max = 150000):
   const now = Date.now();
   for (const [key, value] of requests) if (value.reset < now) requests.delete(key);
   const usage = requests.get(ip) || { count: 0, reset: now + 60000 };
-  if (++usage.count > 40) throw new Error('RATE_LIMIT');
+  if (++usage.count > positiveInt(process.env.QUIZ_API_REQUESTS_PER_MINUTE, 90, 300)) {
+    throw Object.assign(new Error('RATE_LIMIT'), {
+      retryAfter: Math.max(1, Math.ceil((usage.reset - now) / 1000)),
+    });
+  }
   requests.set(ip, usage);
   if (Number(req.headers.get('content-length')) > max) throw new Error('TOO_LARGE');
   const reader = req.body?.getReader();

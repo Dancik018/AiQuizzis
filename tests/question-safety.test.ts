@@ -111,7 +111,7 @@ test('independent verifier disagreement invokes judge; only validated answers be
   }
 });
 
-test('generated option indices are reconciled with answer text and independently verified', async () => {
+test('compact generation preserves exact answer identity and requires independent verification', async () => {
   const oldFetch = globalThis.fetch,
     oldKey = process.env.OPENAI_API_KEY;
   process.env.OPENAI_API_KEY = 'sk-test-only';
@@ -128,17 +128,14 @@ test('generated option indices are reconciled with answer text and independently
       assert.equal(input.id, 'q0');
       const item = {
         id: input.id,
-        question: '',
-        type: 'multiple_choice',
-        language: 'ro',
-        languageConfidence: 1,
-        correctOptionIndices: [1],
-        correctAnswer: invalid ? '999' : '87',
-        generatedOptions: ['85', '86', '87', '88'],
-        answerConfidence: 1,
-        explanation: '',
-        answerLeakage: false,
-        needsVerification: false,
+        q: '',
+        a: '87',
+        d: invalid ? ['87', '86', '88'] : ['85', '86', '88'],
+        lang: 'ro',
+        lc: 1,
+        c: 1,
+        unsafe: false,
+        review: false,
       };
       return Response.json({
         id: 'test',
@@ -157,11 +154,73 @@ test('generated option indices are reconciled with answer text and independently
     };
     const result = (await provider().solve([q], true)).questions[0];
     assert.equal(result.correctAnswer, '87');
-    assert.deepEqual(result.correctOptionIndices, [2]);
+    assert.deepEqual(result.correctOptionIndices, [0]);
     assert.equal(result.status, 'verifying');
     assert.equal(ready(result), false);
     invalid = true;
     assert.equal((await provider().solve([q], true)).questions.length, 0);
+  } finally {
+    globalThis.fetch = oldFetch;
+    if (oldKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = oldKey;
+  }
+});
+
+test('compact independent verification sees no prior answer and escalates ambiguity', async () => {
+  const oldFetch = globalThis.fetch,
+    oldKey = process.env.OPENAI_API_KEY;
+  process.env.OPENAI_API_KEY = 'sk-test-only';
+  const q = detectQuestions(
+    [{ text: 'Care este capitala Franței?', page: 1 }],
+    'verify',
+    'verify.pdf',
+  ).questions[0];
+  let calls = 0;
+  try {
+    globalThis.fetch = async (_url, init) => {
+      const req = JSON.parse(String(init?.body));
+      const input = JSON.parse(req.input[1].content).untrustedQuestions[0];
+      calls++;
+      const item =
+        calls === 1
+          ? {
+              id: input.id,
+              q: '',
+              a: 'Paris',
+              d: ['Roma', 'Madrid', 'Berlin'],
+              lang: 'ro',
+              lc: 1,
+              c: 1,
+              unsafe: false,
+              review: false,
+            }
+          : { id: input.id, q: '', a: 'Paris', i: [0], c: 1, issues: ['ambiguous'] };
+      if (calls === 2) {
+        assert.equal(input.sourceAnswer, undefined);
+        assert.equal(input.correctAnswer, undefined);
+        assert.equal(input.candidates, undefined);
+        assert.deepEqual(input.options, ['Paris', 'Roma', 'Madrid', 'Berlin']);
+      }
+      return Response.json({
+        id: 'test',
+        object: 'response',
+        status: 'completed',
+        output: [
+          {
+            type: 'message',
+            role: 'assistant',
+            content: [
+              { type: 'output_text', text: JSON.stringify({ questions: [item] }), annotations: [] },
+            ],
+          },
+        ],
+      });
+    };
+    const first = (await provider().solve([q], true)).questions[0];
+    const second = (await provider().solve([first], true, true)).questions[0];
+    assert.equal(second.status, 'verifying');
+    assert.equal(ready(second), false);
+    assert.equal(second.passes?.length, 2);
   } finally {
     globalThis.fetch = oldFetch;
     if (oldKey === undefined) delete process.env.OPENAI_API_KEY;

@@ -219,3 +219,42 @@ test('generation respects measured latency budget; timeouts split immediately', 
   assert.equal(waits, 0);
   assert.equal(result.questions.filter((q) => q.solved).length, 20);
 });
+
+test('option generation warms two workers and adapts to long source answers', async () => {
+  const doc = document();
+  doc.questions = doc.questions
+    .slice(0, 20)
+    .map((q) => ({ ...q, options: [], originalOptions: [] }));
+  const sizes = planBatches(
+    doc.questions.map((q) => ({ ...q, sourceAnswer: 'context '.repeat(400) })),
+    defaultProfile('openai'),
+    true,
+  ).map((b) => b.length);
+  assert.ok(Math.max(...sizes) < 16);
+  assert.equal(
+    sizes.reduce((a, b) => a + b, 0),
+    20,
+  );
+  let active = 0,
+    peak = 0;
+  const result = await runSolverQueue(doc, [defaultProfile('openai')], true, {
+    shouldStop: () => false,
+    update: () => {},
+    save: async () => {},
+    solve: async (qs) => {
+      active++;
+      peak = Math.max(peak, active);
+      await new Promise((r) => setTimeout(r, 20));
+      active--;
+      return qs.map((q) => ({
+        ...solved(q),
+        options: ['x', '451', 'y', 'z'],
+        correctOptionIndex: 1,
+        status: 'verified' as const,
+        strengthened: true,
+      }));
+    },
+  });
+  assert.equal(peak, 2);
+  assert.equal(result.questions.filter((q) => q.status === 'verified').length, 20);
+});

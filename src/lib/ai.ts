@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { normalize, ready, type Question, type BatchUsage } from './model';
 import { structuredAI } from './structured-ai';
+import { generateChoices, verifyChoices } from './ai-generation';
 import type { ProviderName } from './ai-config';
 import {
   normalizeQuestion,
@@ -36,44 +37,63 @@ export class QuizAIProvider {
     questions = questions.map(sanitizeQuestion);
     const aliases = new Map(questions.map((q, i) => [`q${i}`, q]));
     let usage: BatchUsage | undefined;
-    const result = await structuredAI(
-      resolutionSchema,
-      'question_resolution',
-      [
-        {
-          role: 'system',
-          content:
-            boundary +
-            `
+    const compactGeneration =
+      generateOptions && questions.every((q) => !q.options.length && !q.passes?.length);
+    const compactVerification =
+      generateOptions &&
+      questions.every(
+        (q) => q.options.length === 4 && q.originalOptions.length === 0 && q.passes?.length === 1,
+      );
+    const result = compactVerification
+      ? await verifyChoices(questions, this.selected, (u) => {
+          usage = { ...u, ids: questions.map((q) => q.id) };
+        })
+      : compactGeneration
+        ? await generateChoices(questions, this.selected, strong, (u) => {
+            usage = { ...u, ids: questions.map((q) => q.id) };
+          })
+        : await structuredAI(
+            resolutionSchema,
+            'question_resolution',
+            [
+              {
+                role: 'system',
+                content:
+                  boundary +
+                  `
 For every ID return exactly one item. Separate QUESTION, ANSWER and EXPLANATION. If the supplied question is already clean, return question="" to keep it unchanged without copying it. Only return nonempty question when repair is needed; it must contain ONLY the complete question for the student, never its answer or answer-key markers. Repair an embedded answer (e.g. 'Ce este X? X este...' => question='Ce este X?'). Preserve essential context; do not shorten multi-part prompts incorrectly. Independently check semantic answer leakage, including paraphrases. Set answerLeakage=true if you cannot safely remove it without changing the meaning. Never use unknown/probably/needs verification as answers.
 Existing options must remain verbatim and in original order: generatedOptions=[]; choose zero-based correctOptionIndices. Detect CM/select-all/multiple-correct questions, not only single-choice. For ALL questions with options return correctAnswer as the exact selected option text (join multiple selected texts with semicolon and space in original order). Check that the zero-based indices select exactly this answer. Compute the answer before constructing distractors; never confuse an option position with an answer. For open questions return a concise answer. ${generateOptions ? 'For NO existing options generate exactly four distinct plausible Romanian options with one correct answer. Distractors must be same-domain, parallel grammar, objectively incorrect; no synonyms, overlapping true options or answers nested in other options.' : 'Do not generate options for open questions.'}
 Each item has a stage: solver, verifier or judge. Solver may use sourceAnswer as evidence, but verify it rather than trusting it blindly. Verifier must solve INDEPENDENTLY from question/options; no prior answer is provided. Judge compares independent candidates and determines a final justified answer, or needsVerification=true if unresolved. Check medical/anatomical/technical accuracy and multiple valid options. Do not force a single answer to a genuinely multiple-answer question. Return explanation empty except a brief decisive judge justification. Never copy answer/explanation into question.`,
-        },
-        {
-          role: 'user',
-          content: JSON.stringify({
-            untrustedQuestions: questions.map((q, i) => ({
-              id: `q${i}`,
-              question: q.question,
-              options: q.options,
-              stage:
-                (q.passes?.length || 0) >= 2 ? 'judge' : q.passes?.length ? 'verifier' : 'solver',
-              ...((q.passes?.length || 0) >= 2
-                ? { candidates: q.passes }
-                : !q.passes?.length
-                  ? { sourceAnswer: q.sourceAnswer }
-                  : {}),
-            })),
-          }),
-        },
-      ],
-      Math.min(16000, 800 + questions.length * 340),
-      this.selected,
-      strong,
-      (u) => {
-        usage = { ...u, ids: questions.map((q) => q.id) };
-      },
-    );
+              },
+              {
+                role: 'user',
+                content: JSON.stringify({
+                  untrustedQuestions: questions.map((q, i) => ({
+                    id: `q${i}`,
+                    question: q.question,
+                    options: q.options,
+                    stage:
+                      (q.passes?.length || 0) >= 2
+                        ? 'judge'
+                        : q.passes?.length
+                          ? 'verifier'
+                          : 'solver',
+                    ...((q.passes?.length || 0) >= 2
+                      ? { candidates: q.passes }
+                      : !q.passes?.length
+                        ? { sourceAnswer: q.sourceAnswer }
+                        : {}),
+                  })),
+                }),
+              },
+            ],
+            Math.min(16000, 800 + questions.length * 340),
+            this.selected,
+            strong,
+            (u) => {
+              usage = { ...u, ids: questions.map((q) => q.id) };
+            },
+          );
     const counts = new Map<string, number>();
     result.questions.forEach((a) => counts.set(a.id, (counts.get(a.id) || 0) + 1));
     const output: Question[] = [];
@@ -141,6 +161,10 @@ Each item has a stage: solver, verifier or judge. Solver may use sourceAnswer as
           clean.question,
         );
       const needs =
+        (generateOptions &&
+          q.originalOptions.length === 0 &&
+          options.length > 0 &&
+          indices.length !== 1) ||
         leakage ||
         item.needsVerification ||
         item.answerConfidence < 0.9 ||

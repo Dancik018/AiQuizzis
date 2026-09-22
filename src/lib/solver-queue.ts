@@ -381,7 +381,7 @@ export async function runSolverQueue(
             current.questions.filter(ready).length < Math.min(minReady, current.questions.length);
           if (
             providerActive >= limits[job.provider] ||
-            (warming && active.size > 0) ||
+            (warming && active.size >= (generate ? Math.min(2, limits[job.provider]) : 1)) ||
             nextStart[job.provider] > now() ||
             (job.readyAt || 0) > now()
           )
