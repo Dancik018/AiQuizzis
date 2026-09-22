@@ -35,13 +35,11 @@ test('free OCR recognizes two real image-only PDF pages locally with one worker'
   await page.goto('/');
   const requests: string[] = [];
   page.on('request', (request) => requests.push(request.url()));
-  await page
-    .locator('input[type=file]')
-    .setInputFiles({
-      name: 'scanned.pdf',
-      mimeType: 'application/pdf',
-      buffer: await scannedPdf(page),
-    });
+  await page.locator('input[type=file]').setInputFiles({
+    name: 'scanned.pdf',
+    mimeType: 'application/pdf',
+    buffer: await scannedPdf(page),
+  });
   await expect(page.getByText('2 pregătite', { exact: true })).toBeVisible({ timeout: 90000 });
   expect(requests.filter((url) => url.endsWith('/ocr/worker.min.js'))).toHaveLength(1);
   expect(requests.some((url) => url.includes('/api/ocr') || url.includes('googleapis.com'))).toBe(
@@ -60,13 +58,11 @@ test('OCR worker download failure produces a clear error without fake questions'
 }) => {
   await page.goto('/');
   await page.route('**/ocr/worker.min.js', (route) => route.abort());
-  await page
-    .locator('input[type=file]')
-    .setInputFiles({
-      name: 'scanned.pdf',
-      mimeType: 'application/pdf',
-      buffer: await scannedPdf(page),
-    });
+  await page.locator('input[type=file]').setInputFiles({
+    name: 'scanned.pdf',
+    mimeType: 'application/pdf',
+    buffer: await scannedPdf(page),
+  });
   await expect(page.locator('.global-error')).toContainText('Motorul OCR gratuit', {
     timeout: 30000,
   });

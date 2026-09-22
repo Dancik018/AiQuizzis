@@ -9,9 +9,9 @@ for (const format of ['pdf', 'docx'] as const) {
       route.fulfill({
         json: {
           ai: true,
-          provider: 'groq',
+          provider: 'openai',
           batchSize: 40,
-          providers: [{ id: 'groq', maxQuestions: 40, tokenBudget: 6500, intervalMs: 0 }],
+          providers: [{ id: 'openai', maxQuestions: 40, tokenBudget: 6500, intervalMs: 0 }],
         },
       }),
     );
@@ -19,17 +19,21 @@ for (const format of ['pdf', 'docx'] as const) {
     const ids = new Set<string>();
     await page.route('**/api/solve', async (route) => {
       const request = route.request().postDataJSON();
-      expect(request.provider).toBe('groq');
+      expect(request.provider).toBe('openai');
       sizes.push(request.questions.length);
       await route.fulfill({
         json: {
-          provider: 'groq',
+          provider: 'openai',
           questions: request.questions.map(
             (q: { id: string; question: string; options: string[] }) => {
               expect(ids.has(q.id)).toBe(false);
               ids.add(q.id);
               const number = Number(q.question.match(/adunarii (\d+)/)?.[1]);
               return {
+                ...q,
+                status: 'verified',
+                solved: true,
+                reviewed: false,
                 id: q.id,
                 language: 'ro',
                 languageConfidence: 0.99,

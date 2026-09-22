@@ -1,5 +1,13 @@
-import { normalize, uid, type DocumentSet, type Question, type SolvedQuestions } from './model';
+import {
+  questionSchema,
+  normalize,
+  uid,
+  type DocumentSet,
+  type Question,
+  type SolvedQuestions,
+} from './model';
 import { putDocument } from './storage';
+import { sanitizeQuestion } from './question-safety';
 import { BatchError, runSolverQueue } from './solver-queue';
 import { defaultProfile, type SolverProfile } from './batching';
 import { questionHash, readAnswer, writeAnswer } from './answer-cache';
@@ -45,20 +53,14 @@ export async function solveQuestions(
     .map((q) => {
       const answer = result.questions.find((a: { id: string }) => a.id === q.id);
       if (!answer) throw new Error('Lot incomplet. Reîncearcă.');
-      const options = q.options.length ? q.options : answer.generatedOptions;
+      const parsed = questionSchema.parse(answer);
       return {
-        ...q,
-        language: answer.language,
-        languageConfidence: answer.languageConfidence,
-        options,
-        type: options.length >= 2 ? 'multiple_choice' : 'open',
-        correctOptionIndex: answer.correctOptionIndex,
-        correctAnswer: answer.correctAnswer,
-        answerConfidence: answer.answerConfidence,
-        explanation: answer.explanation,
-        solved: true,
-        reviewed: false,
-        strengthened: strong,
+        ...parsed,
+        id: q.id,
+        documentId: q.documentId,
+        source: q.source,
+        page: q.page,
+        originalOptions: q.originalOptions,
       };
     });
   solved.usage = result.usage;
@@ -85,7 +87,7 @@ export async function processDocument(
     ? profiles
     : [
         {
-          ...defaultProfile('gemini'),
+          ...defaultProfile('openai'),
           maxQuestions: batchSize || 40,
           intervalMs: requestIntervalMs,
         },
@@ -160,7 +162,7 @@ export async function analyzeStructure(
       const atEnd = start + lines.length >= current.lines.length;
       current = {
         ...current,
-        questions: [...current.questions, ...added],
+        questions: [...current.questions, ...added.map(sanitizeQuestion)],
         analysisCursor: atEnd ? current.lines.length : start + Math.max(1, lines.length - 10),
         analysisComplete: atEnd,
         error: undefined,

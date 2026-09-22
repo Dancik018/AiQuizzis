@@ -1,6 +1,6 @@
 import type { Question } from './model';
 export type SolverProfile = {
-  id: 'groq' | 'gemini' | 'openai';
+  id: 'openai';
   maxQuestions: number;
   tokenBudget: number;
   intervalMs: number;
@@ -10,10 +10,10 @@ export type SolverProfile = {
 };
 export const defaultProfile = (id: SolverProfile['id']): SolverProfile => ({
   id,
-  maxQuestions: id === 'openai' ? 50 : 40,
-  tokenBudget: id === 'groq' ? 6500 : 16000,
-  intervalMs: id === 'groq' ? 55000 : id === 'gemini' ? 13000 : 0,
-  concurrency: id === 'openai' ? 5 : 1,
+  maxQuestions: 50,
+  tokenBudget: 16000,
+  intervalMs: 0,
+  concurrency: 5,
   minReady: 20,
 });
 export const estimatedTokens = (q: Question, generate: boolean) =>

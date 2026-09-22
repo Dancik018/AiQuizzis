@@ -33,11 +33,11 @@ const solved = (q: Question): Question => ({
 
 test('adaptive planning maximizes short batches and shrinks long batches without dropping questions', () => {
   const qs = document().questions;
-  const short = planBatches(qs, defaultProfile('groq'));
-  assert.ok(short[0].length >= 15 && short[0].length <= 40);
+  const short = planBatches(qs, defaultProfile('openai'));
+  assert.ok(short[0].length >= 15 && short[0].length <= 50);
   const long = planBatches(
     qs.map((q) => ({ ...q, question: q.question + ' document'.repeat(600) })),
-    defaultProfile('groq'),
+    defaultProfile('openai'),
   );
   assert.ok(long[0].length < short[0].length);
   assert.deepEqual(
@@ -46,50 +46,45 @@ test('adaptive planning maximizes short batches and shrinks long batches without
   );
 });
 
-test('450 candidates continue through Groq quota, Gemini fallback and poison-question splitting', async () => {
+test('450 candidates continue through transient errors and poison-question splitting', async () => {
   const doc = document(),
     poison = doc.questions[36].id;
   let time = 0,
     saves = 0,
-    groqCalls = 0;
+    firstCalls = 0;
   const successful = new Set<string>();
   let lastFinished = 0;
-  const result = await runSolverQueue(
-    doc,
-    [defaultProfile('groq'), defaultProfile('gemini')],
-    false,
-    {
-      now: () => time,
-      sleep: async (ms) => {
-        time += ms;
-      },
-      shouldStop: () => false,
-      update: () => {},
-      save: async (d) => {
-        saves++;
-        assert.ok((d.processing?.finished || 0) >= lastFinished);
-        lastFinished = d.processing?.finished || 0;
-      },
-      solve: async (qs, _, provider) => {
-        time += 500;
-        if (provider === 'groq') {
-          groqCalls++;
-          throw new BatchError('quota', 'AI_QUOTA');
-        }
-        if (qs.some((q) => q.id === poison)) throw new BatchError('bad item', 'AI_INVALID');
-        qs.forEach((q) => {
-          assert.ok(!successful.has(q.id));
-          successful.add(q.id);
-        });
-        return qs.map(solved);
-      },
+  const result = await runSolverQueue(doc, [defaultProfile('openai')], false, {
+    now: () => time,
+    sleep: async (ms) => {
+      time += ms;
     },
-  );
+    shouldStop: () => false,
+    update: () => {},
+    save: async (d) => {
+      saves++;
+      assert.ok((d.processing?.finished || 0) >= lastFinished);
+      lastFinished = d.processing?.finished || 0;
+    },
+    solve: async (qs) => {
+      time += 500;
+      if (firstCalls === 0) {
+        firstCalls++;
+        throw new BatchError('temporary', 'PROVIDER_ERROR');
+      }
+      if (qs.some((q) => q.id === poison)) throw new BatchError('bad item', 'AI_INVALID');
+      qs.forEach((q) => {
+        assert.ok(!successful.has(q.id));
+        successful.add(q.id);
+      });
+      return qs.map(solved);
+    },
+  });
   assert.equal(result.processing?.finished, 450);
   assert.equal(result.processing?.failed, 1);
   assert.equal(result.questions.filter((q) => q.solved).length, 449);
   assert.equal(result.processing?.queue.length, 0);
-  assert.equal(groqCalls, 1);
+  assert.equal(firstCalls, 1);
   assert.ok(saves > 10);
 });
 
@@ -115,10 +110,10 @@ test('resume uses saved queue without repeating successful questions', async () 
       return qs.map(solved);
     },
   };
-  const partial = await runSolverQueue(document(), [defaultProfile('groq')], false, io);
+  const partial = await runSolverQueue(document(), [defaultProfile('openai')], false, io);
   assert.ok(partial.processing!.queue.length);
   stop = false;
-  const complete = await runSolverQueue(partial, [defaultProfile('groq')], false, {
+  const complete = await runSolverQueue(partial, [defaultProfile('openai')], false, {
     ...io,
     save: async () => {},
   });
@@ -126,26 +121,45 @@ test('resume uses saved queue without repeating successful questions', async () 
   assert.equal(done.size, 450);
 });
 
-test('all-provider quota exhaustion preserves pending work and does not invent completed attempts', async () => {
+test('OpenAI quota exhaustion preserves pending work and does not invent completed attempts', async () => {
   let calls = 0;
-  const result = await runSolverQueue(
-    document(),
-    [defaultProfile('groq'), defaultProfile('gemini')],
-    false,
-    {
-      now: () => 0,
-      sleep: async () => {},
-      shouldStop: () => false,
-      update: () => {},
-      save: async () => {},
-      solve: async () => {
-        calls++;
-        throw new BatchError('quota', 'AI_QUOTA');
-      },
+  const result = await runSolverQueue(document(), [defaultProfile('openai')], false, {
+    now: () => 0,
+    sleep: async () => {},
+    shouldStop: () => false,
+    update: () => {},
+    save: async () => {},
+    solve: async () => {
+      calls++;
+      throw new BatchError('quota', 'AI_QUOTA');
     },
-  );
-  assert.equal(calls, 2);
+  });
+  assert.equal(calls, 1);
   assert.equal(result.status, 'partial');
   assert.equal(result.processing?.finished, 0);
   assert.ok(result.processing!.queue.length);
+});
+
+test('explicit retry resets exhausted semantic passes only for failed questions', async () => {
+  const doc = document();
+  doc.questions = [
+    {
+      ...doc.questions[0],
+      solved: true,
+      status: 'failed',
+      strengthened: true,
+      solveError: 'unresolved',
+      passes: [{ question: 'q', answer: 'a', indices: [], confidence: 0.2 }],
+    },
+  ];
+  const result = await runSolverQueue(doc, [defaultProfile('openai')], false, {
+    shouldStop: () => false,
+    update: () => {},
+    save: async () => {},
+    solve: async (qs) => {
+      assert.equal(qs[0].passes, undefined);
+      return qs.map((q) => ({ ...solved(q), status: 'verified' as const }));
+    },
+  });
+  assert.equal(result.questions[0].status, 'verified');
 });

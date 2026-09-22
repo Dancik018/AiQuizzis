@@ -1,10 +1,31 @@
 import { z } from 'zod';
+import { detectAnswerLeakage, invalidAnswer } from './question-safety';
 
 export const questionSchema = z.object({
   id: z.string().min(1).max(100),
   documentId: z.string().max(100),
   question: z.string().min(2).max(12000),
-  type: z.enum(['multiple_choice', 'open']),
+  type: z.enum(['multiple_choice', 'multiple', 'open']),
+  correctOptionIndices: z.array(z.number().int().min(0).max(11)).optional(),
+  status: z
+    .enum(['parsing', 'solving', 'verifying', 'validating', 'verified', 'failed'])
+    .optional(),
+  rawSourceText: z.string().max(20000).optional(),
+  sourceAnswer: z.string().max(8000).optional(),
+  answerSource: z.enum(['document', 'ai', 'manual']).optional(),
+  answerLeakage: z.boolean().optional(),
+  verification: z.enum(['single', 'independent', 'judge']).optional(),
+  passes: z
+    .array(
+      z.object({
+        question: z.string(),
+        answer: z.string(),
+        indices: z.array(z.number().int()),
+        confidence: z.number(),
+      }),
+    )
+    .max(3)
+    .optional(),
   options: z.array(z.string().min(1).max(4000)).max(12),
   originalOptions: z.array(z.string().max(4000)).max(12),
   correctOptionIndex: z.number().int().min(0).max(11).nullable(),
@@ -30,6 +51,7 @@ export type TextLine = {
   font?: string;
   fontSize?: number;
   bold?: boolean;
+  underline?: boolean;
   italic?: boolean;
   x?: number;
   y?: number;
@@ -75,6 +97,7 @@ export type QuizConfig = {
 export type Answer = {
   value: string;
   optionIndex?: number;
+  optionIndices?: number[];
   correct: boolean | null;
   submitted: boolean;
   explanation?: string;
@@ -90,6 +113,8 @@ export type QuizSession = {
   flagged: string[];
   skipped: string[];
   startedAt: string;
+  updatedAt?: string;
+  status?: 'in_progress' | 'completed';
   completedAt?: string;
   progressive?: boolean;
   bufferStarted?: boolean;
@@ -127,13 +152,21 @@ export const normalize = (text: string) =>
     .trim()
     .replace(/\s+/g, ' ');
 export const ready = (q: Question) =>
+  (!q.status || q.status === 'verified') &&
+  !q.answerLeakage &&
+  !detectAnswerLeakage(q.question, q.correctAnswer) &&
+  !invalidAnswer(q.correctAnswer) &&
   q.language === 'ro' &&
   (q.reviewed || (q.languageConfidence >= 0.8 && q.answerConfidence >= 0.85)) &&
   q.correctAnswer.trim().length > 0 &&
   (q.type === 'open' ||
     (q.options.length >= 2 &&
-      q.correctOptionIndex !== null &&
-      q.correctOptionIndex < q.options.length));
+      (q.type === 'multiple'
+        ? Boolean(
+            q.correctOptionIndices?.length &&
+            q.correctOptionIndices.every((i) => i >= 0 && i < q.options.length),
+          )
+        : q.correctOptionIndex !== null && q.correctOptionIndex < q.options.length)));
 export const uid = () => crypto.randomUUID();
 export const needsAnalysis = (q: Question) =>
   !q.reviewed && q.language !== 'foreign' && (!q.solved || q.language === 'uncertain');

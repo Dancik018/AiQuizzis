@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { ArrowLeft, Check, Copy, Pencil, Search, Sparkles, Trash2, X } from 'lucide-react';
 import { ready, uid, type DocumentSet, type Question } from '@/lib/model';
 import { solveQuestions } from '@/lib/processing';
+import { sanitizeQuestion, detectAnswerLeakage } from '@/lib/question-safety';
 
 export default function QuestionReview({
   doc,
@@ -32,6 +33,11 @@ export default function QuestionReview({
   );
   const pages = Math.max(1, Math.ceil(filtered.length / 15));
   const save = async (q: Question) => {
+    q = sanitizeQuestion(q);
+    if (detectAnswerLeakage(q.question, q.correctAnswer)) {
+      setError('Textul întrebării dezvăluie răspunsul. Reformulează întrebarea.');
+      return;
+    }
     if (!q.question.trim() || !q.correctAnswer.trim()) {
       setError('Completează întrebarea și răspunsul corect.');
       return;
@@ -54,6 +60,10 @@ export default function QuestionReview({
             ? {
                 ...q,
                 solved: true,
+                status: 'verified',
+                answerLeakage: false,
+                answerSource: 'manual',
+                reviewed: true,
                 solveError: undefined,
                 correctAnswer:
                   q.type === 'multiple_choice' ? q.options[q.correctOptionIndex!] : q.correctAnswer,
@@ -77,8 +87,17 @@ export default function QuestionReview({
           'Variantele originale sunt păstrate. Poți regenera răspunsul sau edita manual.',
         );
       const input = distractors ? { ...editing, options: [], correctOptionIndex: null } : editing;
-      const generated = (await solveQuestions([input], distractors))[0];
+      let generated = (await solveQuestions([{ ...input, passes: undefined }], distractors))[0];
       if (!generated) throw new Error('AI nu a returnat variante valide. Reîncearcă.');
+      for (let pass = 0; pass < 2 && generated.status === 'verifying'; pass++) {
+        await onChange({
+          ...doc,
+          questions: doc.questions.map((q) => (q.id === generated.id ? generated : q)),
+        });
+        const next = (await solveQuestions([generated], distractors, 'openai', true))[0];
+        if (!next) throw new Error('Verificarea automată nu a returnat un rezultat valid.');
+        generated = next;
+      }
       await onChange({
         ...doc,
         questions: doc.questions.map((q) => (q.id === generated.id ? generated : q)),
@@ -253,6 +272,7 @@ export default function QuestionReview({
                   }
                 >
                   <option value="multiple_choice">Variante de răspuns</option>
+                  <option value="multiple">Mai multe răspunsuri corecte</option>
                   <option value="open">Răspuns manual</option>
                 </select>
               </label>
@@ -274,20 +294,38 @@ export default function QuestionReview({
                 </select>
               </label>
             </div>
-            {editing.type === 'multiple_choice' ? (
+            {editing.type !== 'open' ? (
               <fieldset>
                 <legend>Variante · selectează răspunsul corect</legend>
                 {editing.options.map((o, i) => (
                   <label className="option-edit" key={i}>
                     <input
-                      type="radio"
+                      type={editing.type === 'multiple' ? 'checkbox' : 'radio'}
                       name="correct"
-                      checked={editing.correctOptionIndex === i}
+                      checked={
+                        editing.type === 'multiple'
+                          ? editing.correctOptionIndices?.includes(i) || false
+                          : editing.correctOptionIndex === i
+                      }
                       onChange={() =>
                         setEditing({
                           ...editing,
                           correctOptionIndex: i,
-                          correctAnswer: editing.options[i],
+                          correctOptionIndices:
+                            editing.type === 'multiple'
+                              ? editing.correctOptionIndices?.includes(i)
+                                ? editing.correctOptionIndices.filter((j) => j !== i)
+                                : [...(editing.correctOptionIndices || []), i]
+                              : [i],
+                          correctAnswer:
+                            editing.type === 'multiple'
+                              ? (editing.correctOptionIndices?.includes(i)
+                                  ? editing.correctOptionIndices.filter((j) => j !== i)
+                                  : [...(editing.correctOptionIndices || []), i]
+                                )
+                                  .map((j) => editing.options[j])
+                                  .join('; ')
+                              : editing.options[i],
                         })
                       }
                     />

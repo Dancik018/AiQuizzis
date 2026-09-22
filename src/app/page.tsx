@@ -106,7 +106,11 @@ export default function Home() {
   };
   const updateSession = async (session: QuizSession) => {
     const latest = sessionsRef.current.find((s) => s.id === session.id);
-    session = hydrateQuiz(session, latest?.questions || []);
+    session = {
+      ...hydrateQuiz(session, latest?.questions || []),
+      updatedAt: new Date().toISOString(),
+      status: session.completedAt ? 'completed' : 'in_progress',
+    };
     const next = sessionsRef.current.some((s) => s.id === session.id)
       ? sessionsRef.current.map((s) => (s.id === session.id ? session : s))
       : [session, ...sessionsRef.current];
@@ -119,7 +123,7 @@ export default function Home() {
       .then(([docs, quizzes]) => {
         setDocuments(docs.sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
         const restored = quizzes
-          .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
+          .sort((a, b) => (b.updatedAt || b.startedAt).localeCompare(a.updatedAt || a.startedAt))
           .map((s) =>
             hydrateQuiz(
               s,
@@ -291,14 +295,16 @@ export default function Home() {
   useEffect(() => {
     if (!loaded || !serviceLoaded || !services.ai || busy || running.current) return;
     const pendingIds = new Set(
-      activeSession?.progressive && !activeSession.completedAt
+      activeSession && !activeSession.completedAt
         ? activeSession.questions.filter((q) => !ready(q) && !q.solveError).map((q) => q.documentId)
         : [],
     );
     const pending = documents.find(
       (d) =>
         !resumed.current.has(d.id) &&
-        (d.status === 'processing' || pendingIds.has(d.id)) &&
+        (d.status === 'processing' ||
+          pendingIds.has(d.id) ||
+          d.questions.some((q) => q.rawSourceText && q.status === 'parsing')) &&
         d.questions.some((q) => needsAnalysis(q) && !q.solveError),
     );
     if (pending) void solveRef.current(pending);
@@ -325,7 +331,7 @@ export default function Home() {
       .flatMap((d) => d.questions)
       .filter((q) => (services.ai ? q.language !== 'foreign' : ready(q))),
   );
-  const unfinished = sessions.find((s) => !s.completedAt);
+
   const totalQuestions = documents.reduce(
     (sum, d) => sum + d.questions.filter((q) => q.language !== 'foreign').length,
     0,
@@ -468,29 +474,61 @@ export default function Home() {
                 </div>
               ) : (
                 <div className="question-list">
-                  {sessions.map((s) => (
-                    <article className="history-row" key={s.id}>
-                      <div className="file-icon">
-                        <BookOpen />
-                      </div>
-                      <div>
-                        <h3>{s.title}</h3>
+                  {[...sessions]
+                    .sort((a, b) =>
+                      (b.updatedAt || b.startedAt).localeCompare(a.updatedAt || a.startedAt),
+                    )
+                    .map((s) => (
+                      <article className="history-row" key={s.id}>
+                        <div className="file-icon">
+                          <BookOpen />
+                        </div>
+                        <div>
+                          <h3>{s.title}</h3>
+                          <p>
+                            {new Date(s.updatedAt || s.startedAt).toLocaleString('ro-RO')} ·{' '}
+                            {s.questions.length} întrebări ·{' '}
+                            {s.config.mode === 'exam' ? 'Examen' : 'Practică'}
+                          </p>
+                        </div>
                         <p>
-                          {new Date(s.startedAt).toLocaleDateString('ro-RO')} · {s.questions.length}{' '}
-                          întrebări · {s.config.mode === 'exam' ? 'Examen' : 'Practică'}
+                          {Object.values(s.answers).filter((a) => a.submitted).length} /{' '}
+                          {s.questions.length} răspunse
                         </p>
-                      </div>
-                      <b>{s.completedAt ? `${results(s).percent}%` : 'În progres'}</b>
-                      <button
-                        onClick={() => {
-                          openSession(s.id);
-                        }}
-                      >
-                        {s.completedAt ? 'Rezultate' : 'Continuă'}
-                        <ArrowRight size={16} />
-                      </button>
-                    </article>
-                  ))}
+                        <b>{s.completedAt ? `Finalizat · ${results(s).percent}%` : 'În progres'}</b>
+                        <button
+                          onClick={() => {
+                            openSession(s.id);
+                          }}
+                        >
+                          {s.completedAt ? 'Rezultate' : 'Continuă Quiz'}
+                          <ArrowRight size={16} />
+                        </button>
+                        {!s.completedAt && (
+                          <button
+                            onClick={async () => {
+                              if (
+                                !window.confirm(
+                                  'Sigur dorești să reîncepi acest quiz? Progresul actual va fi resetat.',
+                                )
+                              )
+                                return;
+                              await updateSession({
+                                ...s,
+                                answers: {},
+                                current: 0,
+                                flagged: [],
+                                skipped: [],
+                                startedAt: new Date().toISOString(),
+                              });
+                              openSession(s.id);
+                            }}
+                          >
+                            Reîncepe
+                          </button>
+                        )}
+                      </article>
+                    ))}
                 </div>
               )}
             </>
@@ -539,31 +577,6 @@ export default function Home() {
                   </div>
                 </div>
               </div>
-              {unfinished && (
-                <section className="resume-banner">
-                  <div className="resume-icon">
-                    <BookOpen size={23} />
-                  </div>
-                  <div>
-                    <b>Continuă de unde ai rămas</b>
-                    <p>
-                      {Object.values(unfinished.answers).filter((a) => a.submitted).length} /{' '}
-                      {unfinished.questions.length} întrebări răspunse · {unfinished.title}
-                    </p>
-                  </div>
-                  <button onClick={() => start(unfinished.questions, unfinished.config)}>
-                    Reîncepe
-                  </button>
-                  <button
-                    className="primary"
-                    onClick={() => {
-                      openSession(unfinished.id);
-                    }}
-                  >
-                    Continuă Quiz <ArrowRight size={16} />
-                  </button>
-                </section>
-              )}
               <section
                 className={`upload-zone ${dragging ? 'dragging' : ''}`}
                 onDragOver={(e) => {
@@ -640,22 +653,14 @@ export default function Home() {
                   <Sparkles size={18} />
                   <p>
                     <b>Verificare manuală disponibilă.</b> Rezolvarea automată necesită configurarea
-                    unei chei Groq, Gemini sau OpenAI în Vercel. Extrage întrebările, apoi
-                    completează răspunsurile în editor.
+                    unei chei OpenAI în Vercel. Extrage întrebările, apoi completează răspunsurile
+                    în editor.
                   </p>
                 </div>
               )}
               {services.ai && (
                 <p className="analysis-status">
-                  Furnizor AI:{' '}
-                  {services.provider === 'groq'
-                    ? 'Groq'
-                    : services.provider === 'gemini'
-                      ? 'Google Gemini'
-                      : 'OpenAI'}
-                  . Limitele furnizorului se aplică; loturile sunt procesate pe rând.{' '}
-                  {services.provider === 'gemini' &&
-                    'Pe planul gratuit, Google poate folosi conținutul trimis pentru îmbunătățirea produselor.'}
+                  OpenAI · Procesare paralelă cu salvare după fiecare lot.
                 </p>
               )}
               <div className="section-heading library-heading">

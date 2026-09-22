@@ -1,5 +1,6 @@
 import { normalize, ready, uid, type Question, type QuizConfig, type QuizSession } from './model';
 import { combineQuestions } from './detection';
+import { sanitizeQuestion } from './question-safety';
 export function shuffled<T>(items: T[]): T[] {
   const result = [...items];
   for (let i = result.length - 1; i > 0; i--) {
@@ -16,11 +17,13 @@ export function createQuiz(
   minReady = 20,
 ): QuizSession {
   let available = combineQuestions(
-    questions.filter(
-      (q) =>
-        (progressive ? q.language !== 'foreign' : ready(q)) &&
-        (q.type === 'open' ? config.includeOpen : config.includeMC),
-    ),
+    questions
+      .map(sanitizeQuestion)
+      .filter(
+        (q) =>
+          (progressive ? q.language !== 'foreign' : ready(q)) &&
+          (q.type === 'open' ? config.includeOpen : config.includeMC),
+      ),
   );
   if (config.shuffleQuestions) available = shuffled(available);
   available = available.slice(0, config.count || available.length);
@@ -49,11 +52,13 @@ export function createQuiz(
     flagged: [],
     skipped: [],
     startedAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    status: 'in_progress',
   };
 }
 // Hydrate only reserved, unprepared questions. A played question is an immutable snapshot.
 export function hydrateQuiz(session: QuizSession, questions: Question[]): QuizSession {
-  if (!session.progressive || session.completedAt) return session;
+  if (session.completedAt) return session;
   const byId = new Map(questions.map((q) => [q.id, q]));
   let changed = false;
   const optionOrders = [...session.optionOrders];
@@ -61,7 +66,6 @@ export function hydrateQuiz(session: QuizSession, questions: Question[]): QuizSe
     const next = byId.get(q.id);
     if (
       ready(q) ||
-      session.answers[q.id] ||
       !next ||
       (!ready(next) && next.solveError === q.solveError && next.solved === q.solved)
     )

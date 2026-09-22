@@ -13,7 +13,7 @@ const document = {
 
 test('rate-limit wait can be stopped and its deadline survives refresh', async ({ page }) => {
   await page.route('**/api/config', (route) =>
-    route.fulfill({ json: { ai: true, provider: 'gemini', batchSize: 10, requestIntervalMs: 0 } }),
+    route.fulfill({ json: { ai: true, provider: 'openai', batchSize: 10, requestIntervalMs: 0 } }),
   );
   let calls = 0;
   await page.route('**/api/solve', (route) => {
@@ -38,7 +38,7 @@ test('rate-limit wait can be stopped and its deadline survives refresh', async (
 
 test('temporary limit automatically retries the same batch and enables quiz', async ({ page }) => {
   await page.route('**/api/config', (route) =>
-    route.fulfill({ json: { ai: true, provider: 'gemini', batchSize: 10, requestIntervalMs: 0 } }),
+    route.fulfill({ json: { ai: true, provider: 'openai', batchSize: 10, requestIntervalMs: 0 } }),
   );
   let calls = 0;
   let id = '';
@@ -58,6 +58,10 @@ test('temporary limit automatically retries the same batch and enables quiz', as
       json: {
         questions: [
           {
+            ...q,
+            status: 'verified',
+            solved: true,
+            reviewed: false,
             id: q.id,
             language: 'ro',
             languageConfidence: 0.99,
@@ -82,7 +86,7 @@ test('temporary limit automatically retries the same batch and enables quiz', as
 
 test('daily quota stops without retrying or losing the saved document', async ({ page }) => {
   await page.route('**/api/config', (route) =>
-    route.fulfill({ json: { ai: true, provider: 'gemini', batchSize: 10, requestIntervalMs: 0 } }),
+    route.fulfill({ json: { ai: true, provider: 'openai', batchSize: 10, requestIntervalMs: 0 } }),
   );
   let calls = 0;
   await page.route('**/api/solve', (route) => {
@@ -94,7 +98,7 @@ test('daily quota stops without retrying or losing the saved document', async ({
   });
   await page.goto('/');
   await page.locator('input[type=file]').setInputFiles(document);
-  await expect(page.getByText(/Toți furnizorii configurați sunt indisponibili/)).toBeVisible();
+  await expect(page.getByText(/OpenAI este indisponibil/)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Reîncearcă loturile rămase' })).toBeEnabled();
   await page.reload();
   await expect(page.getByText('retry.docx', { exact: true })).toBeVisible();

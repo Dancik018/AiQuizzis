@@ -12,9 +12,9 @@ for (const [format, count] of [
       r.fulfill({
         json: {
           ai: true,
-          provider: 'groq',
+          provider: 'openai',
           batchSize: 20,
-          providers: [{ id: 'groq', maxQuestions: 20, tokenBudget: 6500, intervalMs: 500 }],
+          providers: [{ id: 'openai', maxQuestions: 20, tokenBudget: 6500, intervalMs: 500 }],
         },
       }),
     );
@@ -28,6 +28,10 @@ for (const [format, count] of [
       const questions = data.questions.map((q: { id: string; options: string[] }) => {
         solvedIds.add(q.id);
         return {
+          ...q,
+          status: 'verified',
+          solved: true,
+          reviewed: false,
           id: q.id,
           language: 'ro',
           languageConfidence: 1,
@@ -81,9 +85,9 @@ test('manual variants save immediately and bulk generation only sends remaining 
     r.fulfill({
       json: {
         ai: true,
-        provider: 'groq',
+        provider: 'openai',
         batchSize: 20,
-        providers: [{ id: 'groq', maxQuestions: 20, tokenBudget: 6500, intervalMs: 0 }],
+        providers: [{ id: 'openai', maxQuestions: 20, tokenBudget: 6500, intervalMs: 0 }],
       },
     }),
   );
@@ -97,12 +101,18 @@ test('manual variants save immediately and bulk generation only sends remaining 
           expect(q.options).toHaveLength(0);
           received.push(q.id);
           return {
+            ...q,
+            status: 'verified',
+            solved: true,
+            reviewed: false,
             id: q.id,
             language: 'ro',
             languageConfidence: 1,
             correctOptionIndex: 1,
             correctAnswer: '2',
-            generatedOptions: ['1', '2', '3', '4'],
+            options: ['1', '2', '3', '4'],
+            type: 'multiple_choice',
+            generatedOptions: [],
             answerConfidence: 1,
             explanation: '',
           };
@@ -165,6 +175,10 @@ test('exact repeated questions reuse validated local cache across documents', as
     return r.fulfill({
       json: {
         questions: body.questions.map((q: { id: string; options: string[] }) => ({
+          ...q,
+          status: 'verified',
+          solved: true,
+          reviewed: false,
           id: q.id,
           language: 'ro',
           languageConfidence: 1,

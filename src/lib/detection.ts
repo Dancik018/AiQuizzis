@@ -1,4 +1,5 @@
 import { normalize, type Question, type TextLine } from './model';
+import { sanitizeQuestion } from './question-safety';
 
 export function detectLanguage(text: string): {
   language: Question['language'];
@@ -75,7 +76,7 @@ export function detectLanguage(text: string): {
 }
 
 const numbered = /^\s*\d{1,5}\s*[.)\-:]\s*(.+)/;
-const option = /^\s*([A-La-l])\s*[.)\-:]\s*(.+)/;
+const option = /^\s*[+✓✔*]?\s*([A-La-l])\s*[.)\-:]\s*(.+)/;
 const questionStart =
   /^(?:care|ce|cum|când|cand|unde|de ce|câte|cate|cât|cat|explicați|explicati|definiți|definiti|descrieți|descrieti|identificați|identificati|selectați|selectati|indicați|indicati|alegeți|alegeti|numiți|numiti|enumerați|enumerati|what|which|how|define|explain|quel|quelle|что|какой)\b/i;
 const irrelevant =
@@ -90,9 +91,25 @@ export function detectQuestions(lines: TextLine[], documentId: string, source: s
   const seen = new Set<string>();
   const finish = () => {
     if (!current) return;
+    current = sanitizeQuestion(current);
+    if (
+      current.status === 'verified' &&
+      /medical|anatom|hormon|pancreas|bohr|electron|protocol|memori|nerv|arter|celul|tehnic|fizic|chimic/i.test(
+        current.question,
+      )
+    ) {
+      current.status = 'verifying';
+      current.solved = false;
+    }
     const lang = detectLanguage(current.question);
     Object.assign(current, lang);
-    current.type = current.options.length >= 2 ? 'multiple_choice' : 'open';
+    current.type =
+      current.options.length >= 2
+        ? /\bCM\b|răspunsurile corecte|afirmațiile corecte|select all/i.test(current.question) ||
+          (current.correctOptionIndices?.length || 0) > 1
+          ? 'multiple'
+          : 'multiple_choice'
+        : 'open';
     current.originalOptions = [...current.options];
     const key = normalize(current.question) + '|' + current.options.map(normalize).join('|');
     if (lang.language === 'foreign') rejected++;
@@ -117,14 +134,37 @@ export function detectQuestions(lines: TextLine[], documentId: string, source: s
     for (const text of fragments) {
       const opt = text.match(option);
       if (opt && current) {
+        if (/^\s*[+✓✔*]|[✓✔]|\(corect\)/i.test(text) || line.bold || line.underline) {
+          current.sourceAnswer =
+            `${current.sourceAnswer || ''} Indiciu editorial, necesită verificare: ${opt[1].toUpperCase()}.`.trim();
+        }
         current.options.push(opt[2].trim());
         lastOption = true;
         continue;
       }
       const answer = text.match(
-        /^(?:răspuns(?:ul)?(?: corect)?|raspuns(?:ul)?(?: corect)?|answer)\s*:\s*(.+)$/i,
+        /^(?:răspuns(?:ul)?(?: corect)?|raspuns(?:ul)?(?: corect)?|answer|r|corect|varianta corect[ăa])\s*:\s*(.+)$/i,
       );
       if (answer && current) {
+        current.sourceAnswer = answer[1].trim();
+        const letters = answer[1].trim().match(/^[A-L](?:\s*[,;+/]\s*[A-L])+[.]?$/i);
+        if (letters) {
+          current.correctOptionIndices = (letters[0].match(/[A-L]/gi) || []).map(
+            (c) => c.toUpperCase().charCodeAt(0) - 65,
+          );
+          current.correctOptionIndex = current.correctOptionIndices[0];
+          current.correctAnswer = current.correctOptionIndices
+            .map((i) => current!.options[i])
+            .filter(Boolean)
+            .join('; ');
+          current.answerSource = 'document';
+          if (current.correctOptionIndices.every((i) => i >= 0 && i < current!.options.length)) {
+            current.status = 'verified';
+            current.answerConfidence = 1;
+            current.solved = true;
+          }
+          continue;
+        }
         const idx = /^[A-La-l][.)]?$/.test(answer[1].trim())
           ? answer[1].trim().toUpperCase().charCodeAt(0) - 65
           : -1;
@@ -139,6 +179,8 @@ export function detectQuestions(lines: TextLine[], documentId: string, source: s
           if (matching >= 0) current.correctOptionIndex = matching;
         }
         if (current.correctAnswer) {
+          current.answerSource = 'document';
+          current.status = 'verified';
           current.answerConfidence = 1;
           current.solved = true;
         }

@@ -79,7 +79,7 @@ test('partial batch saves 19 answers and retries only missing IDs; priority matc
   let clock = 0;
   const result = await runSolverQueue(
     d,
-    [{ ...defaultProfile('groq'), intervalMs: 0, maxQuestions: 20 }],
+    [{ ...defaultProfile('openai'), intervalMs: 0, maxQuestions: 20 }],
     false,
     {
       priority: () => priority,
@@ -118,7 +118,7 @@ test('safe parallelism stays bounded and persists each completed group immediate
     d,
     [
       {
-        ...defaultProfile('groq'),
+        ...defaultProfile('openai'),
         maxQuestions: 20,
         intervalMs: 0,
         concurrency: 3,
@@ -156,7 +156,7 @@ test('bulk options touches only missing options; low-confidence gets one stronge
     correctOptionIndex: null,
   };
   const touched: string[] = [];
-  const r = await runSolverQueue(d, [{ ...defaultProfile('groq'), intervalMs: 0 }], true, {
+  const r = await runSolverQueue(d, [{ ...defaultProfile('openai'), intervalMs: 0 }], true, {
     optionsOnly: true,
     shouldStop: () => false,
     update: () => {},
@@ -171,7 +171,7 @@ test('bulk options touches only missing options; low-confidence gets one stronge
   assert.deepEqual(r.questions[0], d.questions[0]);
   const low = doc(1);
   let passes = 0;
-  const done = await runSolverQueue(low, [{ ...defaultProfile('groq'), intervalMs: 0 }], false, {
+  const done = await runSolverQueue(low, [{ ...defaultProfile('openai'), intervalMs: 0 }], false, {
     shouldStop: () => false,
     update: () => {},
     save: async () => {},

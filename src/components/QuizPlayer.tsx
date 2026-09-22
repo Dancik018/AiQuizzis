@@ -44,11 +44,14 @@ export default function QuizPlayer({
       ...answer,
       submitted: true,
       correct:
-        q.type === 'multiple_choice'
-          ? answer.optionIndex === q.correctOptionIndex
-          : exactAnswer(answer.value, q.correctAnswer)
-            ? true
-            : null,
+        q.type === 'multiple'
+          ? [...(answer.optionIndices || [])].sort((a, b) => a - b).join(',') ===
+            [...(q.correctOptionIndices || [])].sort((a, b) => a - b).join(',')
+          : q.type === 'multiple_choice'
+            ? answer.optionIndex === q.correctOptionIndex
+            : exactAnswer(answer.value, q.correctAnswer)
+              ? true
+              : null,
     };
     if (q.type === 'open' && next.correct === null) {
       try {
@@ -67,21 +70,42 @@ export default function QuizPlayer({
         next.correct = data.confidence >= 0.8 ? data.correct : null;
         next.explanation = data.explanation;
       } catch {
-        next.explanation =
-          'Evaluarea semantică nu este disponibilă. Răspunsul necesită verificare manuală.';
+        setError(
+          'Evaluarea OpenAI nu este disponibilă momentan. Răspunsul tău este salvat; apasă Verifică pentru a reîncerca.',
+        );
+        setBusy(false);
+        return;
+      }
+      if (next.correct === null) {
+        setError('Evaluarea nu este concludentă. Reformulează răspunsul sau reîncearcă.');
+        setBusy(false);
+        return;
       }
     }
     await persist({ ...session, answers: { ...session.answers, [q.id]: next } });
     setBusy(false);
   };
-  const choose = (value: string, optionIndex?: number) =>
-    persist({
+  const choose = (value: string, optionIndex?: number) => {
+    const indices =
+      q.type === 'multiple' && optionIndex !== undefined
+        ? answer?.optionIndices?.includes(optionIndex)
+          ? answer.optionIndices.filter((i) => i !== optionIndex)
+          : [...(answer?.optionIndices || []), optionIndex]
+        : undefined;
+    return persist({
       ...session,
       answers: {
         ...session.answers,
-        [q.id]: { value, optionIndex, correct: null, submitted: false },
+        [q.id]: {
+          value: indices ? indices.map((i) => q.options[i]).join('; ') : value,
+          optionIndex,
+          optionIndices: indices,
+          correct: null,
+          submitted: false,
+        },
       },
     });
+  };
   const move = (index: number) => persist({ ...session, current: index });
   if (session.completedAt) {
     const score = results(session);
@@ -221,13 +245,19 @@ export default function QuizPlayer({
                 {q.source} · Pagina {q.page}
               </p>
               <h1 className="quiz-question">{q.question}</h1>
-              {q.type === 'multiple_choice' ? (
+              {q.type === 'multiple' && <p>Selectează toate răspunsurile corecte.</p>}
+              {q.type !== 'open' ? (
                 <div className="answers">
                   {session.optionOrders[session.current].map((index, display) => (
                     <button
                       key={index}
                       disabled={busy || Boolean(answer?.submitted && !exam)}
-                      className={`answer ${answer?.optionIndex === index ? 'selected' : ''} ${!exam && answer?.submitted && index === q.correctOptionIndex ? 'correct' : ''}`}
+                      aria-pressed={
+                        q.type === 'multiple'
+                          ? Boolean(answer?.optionIndices?.includes(index))
+                          : answer?.optionIndex === index
+                      }
+                      className={`answer ${(q.type === 'multiple' ? answer?.optionIndices?.includes(index) : answer?.optionIndex === index) ? 'selected' : ''} ${!exam && answer?.submitted && (q.type === 'multiple' ? q.correctOptionIndices?.includes(index) : index === q.correctOptionIndex) ? 'correct' : ''}`}
                       onClick={() => choose(q.options[index], index)}
                     >
                       <span>{String.fromCharCode(65 + display)}</span>
@@ -254,7 +284,7 @@ export default function QuizPlayer({
                 >
                   <b>
                     {answer.correct === null ? (
-                      'Necesită verificare'
+                      'Evaluare în curs'
                     ) : answer.correct ? (
                       <>
                         <Check size={18} /> Corect!
@@ -311,8 +341,8 @@ export default function QuizPlayer({
               )}
               {(q.solveError || (q.solved && !ready(q))) && (
                 <p>
-                  Întrebarea necesită verificare manuală. Poți continua la alta sau reveni la
-                  documente.
+                  Întrebarea nu a trecut validarea automată și este exclusă din test. Poți continua
+                  la alta.
                 </p>
               )}
               {preparation.every((d) => d.status !== 'processing') && (

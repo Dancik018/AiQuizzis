@@ -102,6 +102,10 @@ test('AI batch failure automatically retries only unfinished items', async ({ pa
     await route.fulfill({
       json: {
         questions: body.questions.map((q: { id: string; options: string[] }) => ({
+          ...q,
+          status: 'verified',
+          solved: true,
+          reviewed: false,
           id: q.id,
           language: 'ro',
           languageConfidence: 0.99,

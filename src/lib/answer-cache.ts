@@ -2,7 +2,15 @@ import { cachedAnswer, cacheAnswer } from './storage';
 import { questionSchema, ready, type Question } from './model';
 export async function questionHash(q: Question, generate: boolean, model: string) {
   const bytes = new TextEncoder().encode(
-    JSON.stringify(['quiz-v2', model, generate, q.question, q.options]),
+    JSON.stringify([
+      'quiz-verified-v3',
+      model,
+      generate,
+      q.question,
+      q.options,
+      q.sourceAnswer,
+      q.rawSourceText,
+    ]),
   );
   return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), (x) =>
     x.toString(16).padStart(2, '0'),
@@ -32,6 +40,10 @@ export async function readAnswer(key: string, q: Question): Promise<Question | u
     type,
     explanation,
     solved: true,
+    status: 'verified',
+    correctOptionIndices: parsed.data.correctOptionIndices,
+    answerLeakage: false,
+    verification: parsed.data.verification,
   };
 }
 export async function writeAnswer(key: string, q: Question) {

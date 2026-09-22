@@ -98,6 +98,7 @@ export function extractDocx(buffer: Uint8Array): TextLine[] {
       page,
       color: colored ? `#${colored}` : '#000000',
       bold: elements(p, 'b').length > 0,
+      underline: elements(p, 'u').length > 0,
       italic: elements(p, 'i').length > 0,
       font: val(elements(p, 'rFonts')[0], 'ascii'),
       fontSize: Number(val(elements(p, 'sz')[0])) / 2 || undefined,

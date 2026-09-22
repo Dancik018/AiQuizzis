@@ -43,6 +43,8 @@ export async function runSolverQueue(
   io: QueueIO,
 ) {
   if (!profiles.length) throw new Error('Niciun serviciu AI configurat.');
+  // Retain the saved queue shape for old documents; there is only one OpenAI profile.
+  profiles = profiles.slice(0, 1);
   const now = io.now || Date.now;
   const sleep =
     io.sleep || ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
@@ -51,7 +53,7 @@ export async function runSolverQueue(
   const optionsOnly = resume ? doc.processing?.optionsOnly : io.optionsOnly;
   const needsWork = (q: Question) =>
     optionsOnly
-      ? !q.options.length && q.language !== 'foreign'
+      ? (!q.options.length || q.status === 'verifying') && q.language !== 'foreign'
       : needsAnalysis(q) ||
         (generate && !q.options.length && q.language !== 'foreign') ||
         (q.solved && !ready(q) && !q.strengthened && !q.reviewed && q.language !== 'foreign');
@@ -60,7 +62,16 @@ export async function runSolverQueue(
     status: 'processing',
     error: undefined,
     questions: doc.questions.map((q) =>
-      resume || !q.solveError ? q : { ...q, solveError: undefined },
+      resume || !q.solveError
+        ? q
+        : {
+            ...q,
+            solveError: undefined,
+            passes: undefined,
+            solved: false,
+            strengthened: false,
+            status: 'parsing',
+          },
     ),
   };
   const attempted = (q: Question) => q.solved || !needsAnalysis(q) || Boolean(q.solveError);
@@ -192,8 +203,6 @@ export async function runSolverQueue(
       nextStart[job.provider] = now() + Math.max(2, seconds) * 1000;
       current.retryAt = nextStart[job.provider];
       if (++rates[job.provider] > 3 || seconds > 120) disabled.add(job.provider);
-      const alternative = profiles.findIndex((_, i) => i !== job.provider && !disabled.has(i));
-      if (alternative >= 0) job.provider = alternative;
       job.tries = 0;
     } else if (++job.tries < 4 && code !== 'TOO_LARGE') {
       job.readyAt = now() + 1000 * 2 ** (job.tries - 1);
@@ -206,7 +215,9 @@ export async function runSolverQueue(
   const execute = async (job: Job) => {
     const profile = profiles[job.provider];
     const questions = job.ids.map((id) => current.questions.find((q) => q.id === id)!);
-    const strong = questions.every((q) => q.solved && !ready(q) && !q.strengthened);
+    const strong = questions.some(
+      (q) => q.status === 'verifying' || (q.solved && !ready(q) && !q.strengthened),
+    );
     const requestStarted = now();
     metrics.requests++;
     metrics.sent += questions.length;
@@ -224,14 +235,12 @@ export async function runSolverQueue(
         current.questions = current.questions.map((q) => {
           const answer = byId.get(q.id);
           if (!answer) return q;
-          if (q.solved && !strong && !(generate && !q.options.length))
-            return {
-              ...q,
-              language: answer.language,
-              languageConfidence: answer.languageConfidence,
-              solveError: undefined,
-            };
-          return { ...answer, strengthened: strong || answer.strengthened, solveError: undefined };
+          return {
+            ...answer,
+            strengthened: answer.status
+              ? answer.status !== 'verifying'
+              : strong || answer.strengthened,
+          };
         });
         job.ids = job.ids.filter((id) => !byId.has(id));
         if (solved.usage) metrics.usage = [...(metrics.usage || []), solved.usage];
@@ -396,7 +405,7 @@ export async function runSolverQueue(
     if (fatal) throw fatal;
     current.status = jobs.length || current.questions.some(needsAnalysis) ? 'partial' : 'ready';
     current.error = stoppedForQuota
-      ? 'Toți furnizorii configurați sunt indisponibili sau au cota epuizată. Progresul și loturile rămase sunt salvate.'
+      ? 'OpenAI este indisponibil sau are cota epuizată. Progresul și loturile rămase sunt salvate.'
       : jobs.length
         ? 'Procesare oprită. Poți continua de unde ai rămas.'
         : current.questions.some((q) => q.solveError)
