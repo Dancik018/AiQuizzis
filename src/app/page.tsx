@@ -32,7 +32,7 @@ import {
 } from '@/lib/model';
 import { getDocuments, getSessions, putDocument, putSession, deleteDocument } from '@/lib/storage';
 import { detectQuestions, combineQuestions } from '@/lib/detection';
-import { createQuiz, hydrateQuiz, quizPriority, results } from '@/lib/quiz';
+import { createQuiz, hydrateQuiz, quizCandidate, quizPriority, results } from '@/lib/quiz';
 import { processDocument, analyzeStructure } from '@/lib/processing';
 import type { ExtractionProgress } from '@/lib/extract';
 import type { SolverProfile } from '@/lib/batching';
@@ -330,7 +330,7 @@ export default function Home() {
     documents
       .filter((d) => selected.includes(d.id))
       .flatMap((d) => d.questions)
-      .filter((q) => (services.ai ? q.language !== 'foreign' : ready(q))),
+      .filter((q) => (services.ai ? quizCandidate(q) : ready(q))),
   );
 
   const totalQuestions = documents.reduce(
@@ -453,7 +453,7 @@ export default function Home() {
               doc={review}
               onChange={updateDocument}
               onBack={() => setView('documents')}
-              onQuiz={() => setConfigQuestions(review.questions)}
+              onQuiz={() => setConfigQuestions(review.questions.filter(quizCandidate))}
               onBulk={() => solve({ ...review, processing: undefined }, true, true)}
               processing={Boolean(processingId)}
             />
@@ -691,10 +691,22 @@ export default function Home() {
               ) : (
                 <div className="documents">
                   {documents.map((doc) => {
-                    const solved = doc.questions.filter(
-                      (q) => q.solved || !needsAnalysis(q) || q.solveError,
-                    ).length;
                     const accepted = doc.questions.filter(ready).length;
+                    const imageQuestions = doc.questions.filter(
+                      (q) => q.requiresImage && q.language !== 'foreign',
+                    ).length;
+                    const foreignQuestions = doc.questions.filter(
+                      (q) => q.language === 'foreign',
+                    ).length;
+                    const reviewQuestions =
+                      doc.questions.length - accepted - imageQuestions - foreignQuestions;
+                    const eligible = doc.questions.filter(
+                      (q) => !q.requiresImage && q.language !== 'foreign',
+                    );
+                    const completed = eligible.filter(
+                      (q) => ready(q) || q.solveError || q.status === 'failed',
+                    ).length;
+                    const pending = eligible.length - completed;
                     return (
                       <article className="document-card" key={doc.id}>
                         <div className="document-main">
@@ -726,14 +738,13 @@ export default function Home() {
                             </p>
                             <div className="document-badges">
                               <span className="badge green">{accepted} pregătite</span>
-                              {doc.questions.length - accepted > 0 && (
-                                <span className="badge amber">
-                                  {doc.questions.length - accepted} de verificat
-                                </span>
+                              {reviewQuestions > 0 && (
+                                <span className="badge amber">{reviewQuestions} de verificat</span>
                               )}
-                              {doc.rejected + doc.duplicates > 0 && (
+                              {doc.rejected + foreignQuestions + doc.duplicates > 0 && (
                                 <span className="muted">
-                                  {doc.rejected} străine · {doc.duplicates} duplicate eliminate
+                                  {doc.rejected + foreignQuestions} străine · {doc.duplicates}{' '}
+                                  duplicate eliminate
                                 </span>
                               )}
                             </div>
@@ -762,24 +773,34 @@ export default function Home() {
                             <X size={17} />
                           </button>
                         </div>
+                        {doc.repairNotice && (
+                          <p className="notice" role="status">
+                            {doc.repairNotice}
+                          </p>
+                        )}
+                        {imageQuestions > 0 && (
+                          <p className="analysis-status">
+                            {imageQuestions} întrebări depind de imagini și sunt excluse din
+                            rezolvarea automată. Le găsești în „Vezi întrebările” → „Depind de
+                            imagini”, împreună cu pagina sursă.
+                          </p>
+                        )}
                         {(doc.processing ||
                           processingId === doc.id ||
                           doc.status === 'partial' ||
                           doc.status === 'processing') && (
                           <div className="batch-progress" role="status">
                             <div>
-                              <span>
-                                Pregătire AI · {accepted} / {doc.questions.length} pregătite
-                              </span>
+                              <span>Pregătire AI · {accepted} pregătite pentru quiz</span>
                               <b>
-                                {solved} / {doc.questions.length}
+                                {completed} / {eligible.length} procesate
                               </b>
                             </div>
-                            <progress value={solved} max={Math.max(1, doc.questions.length)} />
+                            <progress value={completed} max={Math.max(1, eligible.length)} />
                             {doc.processing && (
                               <p className="analysis-status">
-                                {Math.round((solved / Math.max(1, doc.questions.length)) * 100)}%
-                                încercate · AI: {doc.processing.provider} · Lot curent:{' '}
+                                {Math.round((completed / Math.max(1, eligible.length)) * 100)}%
+                                procesate · AI: {doc.processing.provider} · Lot curent:{' '}
                                 {doc.processing.batchSize} întrebări
                                 <br />
                                 Timp scurs: {Math.floor(doc.processing.elapsedMs / 60000)}:
@@ -788,11 +809,14 @@ export default function Home() {
                                   '0',
                                 )}
                                 {' · '}Timp estimat rămas:{' '}
-                                {doc.processing.workDone > 0
-                                  ? `~${Math.ceil(((doc.questions.length - solved) * doc.processing.elapsedMs) / doc.processing.workDone / 60000)} min`
-                                  : 'se calculează după primul lot'}
-                                {doc.processing.failed > 0 &&
-                                  ` · ${doc.processing.failed} nereușite, de verificat manual`}
+                                {pending === 0
+                                  ? 'finalizat'
+                                  : completed > 0
+                                    ? `~${Math.max(1, Math.ceil((pending * doc.processing.elapsedMs) / completed / 60000))} min`
+                                    : 'se calculează după prima verificare'}
+                                {reviewQuestions > 0 &&
+                                  pending === 0 &&
+                                  ` · ${reviewQuestions} de verificat manual`}
                               </p>
                             )}
                             {processingId === doc.id && (
@@ -833,7 +857,11 @@ export default function Home() {
                             Oprește analiza după lotul curent
                           </button>
                         )}
-                        {doc.error && <p className="error">{doc.error}</p>}
+                        {doc.error && (
+                          <p className={doc.retryAt ? 'notice' : 'error'} role="status">
+                            {doc.error}
+                          </p>
+                        )}
                         <div className="document-footer">
                           <button
                             className="text-button"
@@ -873,7 +901,9 @@ export default function Home() {
                             </button>
                             <button
                               disabled={services.ai ? !doc.questions.length : !accepted}
-                              onClick={() => setConfigQuestions(doc.questions)}
+                              onClick={() =>
+                                setConfigQuestions(doc.questions.filter(quizCandidate))
+                              }
                             >
                               Generează Quiz <ArrowRight size={15} />
                             </button>
@@ -906,9 +936,9 @@ export default function Home() {
               </button>
             </div>
             <p>
-              {combineQuestions(configQuestions.filter((q) => q.language !== 'foreign')).length}{' '}
-              întrebări extrase · {configQuestions.filter(ready).length} pregătite. Quiz-ul rezervă
-              toate întrebările selectate; AI continuă în fundal.
+              {combineQuestions(configQuestions.filter(quizCandidate)).length} întrebări extrase ·{' '}
+              {configQuestions.filter(ready).length} pregătite. Quiz-ul rezervă toate întrebările
+              selectate; AI continuă în fundal.
             </p>
             <label>
               Număr întrebări

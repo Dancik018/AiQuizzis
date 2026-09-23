@@ -39,6 +39,16 @@ export function detectLanguage(text: string): {
     'in',
     'si',
     'nu',
+    'de',
+    'la',
+    'cu',
+    'din',
+    'ale',
+    'al',
+    'prezinta',
+    'contine',
+    'afirmatii',
+    'referitor',
   ]);
   const en = score([
     'what',
@@ -53,6 +63,31 @@ export function detectLanguage(text: string): {
     'explain',
     'define',
     'select',
+    'of',
+    'and',
+    'following',
+    'contains',
+    'include',
+    'consists',
+    'located',
+    'structures',
+    'statements',
+    'regarding',
+    'with',
+    'has',
+    'from',
+    'into',
+    'only',
+    'can',
+    'by',
+    'its',
+    'those',
+    'an',
+    'to',
+    'picture',
+    'demonstrates',
+    'shown',
+    'indicated',
   ]);
   const fr = score([
     'quel',
@@ -65,17 +100,23 @@ export function detectLanguage(text: string): {
     'comment',
     'expliquez',
   ]);
-  if (/[\u0400-\u04ff]/.test(text) && ro < 2)
+  if (
+    (text.match(/[\u0400-\u04ff]/g)?.length || 0) /
+      Math.max(1, text.match(/\p{L}/gu)?.length || 0) >
+      0.35 &&
+    ro < 2
+  )
     return { language: 'foreign', languageConfidence: 0.98 };
   if (ro >= 2 && ro > en && ro > fr)
     return { language: 'ro', languageConfidence: Math.min(0.99, 0.86 + ro * 0.02) };
-  if ((en >= 2 || fr >= 2) && Math.max(en, fr) > ro)
+  if ((en >= 2 && en > ro) || (fr >= 2 && fr >= ro))
     return { language: 'foreign', languageConfidence: 0.95 };
   if (ro >= 1 && /[ăâîșțşţ]/i.test(text)) return { language: 'ro', languageConfidence: 0.85 };
   return { language: 'uncertain', languageConfidence: 0.4 };
 }
 
 const numbered = /^\s*\d{1,5}\s*[.)\-:]\s*(.+)/;
+const typedQuestion = /^(?:CS|CM|SC|MC)\s*[.:]\s*\S/i;
 const option = /^\s*[+✓✔*]?\s*([A-La-l])\s*[.)\-:]\s*(.+)/;
 const questionStart =
   /^(?:care|ce|cum|când|cand|unde|de ce|câte|cate|cât|cat|explicați|explicati|definiți|definiti|descrieți|descrieti|identificați|identificati|selectați|selectati|indicați|indicati|alegeți|alegeti|numiți|numiti|enumerați|enumerati|what|which|how|define|explain|quel|quelle|что|какой)\b/i;
@@ -101,17 +142,24 @@ export function detectQuestions(lines: TextLine[], documentId: string, source: s
       current.status = 'verifying';
       current.solved = false;
     }
-    const lang = detectLanguage(current.question);
+    let lang = detectLanguage(current.question);
+    if (lang.language === 'uncertain')
+      lang = detectLanguage(current.question + ' ' + current.options.join(' '));
     Object.assign(current, lang);
     current.type =
       current.options.length >= 2
-        ? /\bCM\b|răspunsurile corecte|afirmațiile corecte|select all/i.test(current.question) ||
-          (current.correctOptionIndices?.length || 0) > 1
+        ? /\b(?:CM|MC)\b|răspunsurile corecte|afirmațiile corecte|select all/i.test(
+            current.question,
+          ) || (current.correctOptionIndices?.length || 0) > 1
           ? 'multiple'
           : 'multiple_choice'
         : 'open';
     current.originalOptions = [...current.options];
-    const key = normalize(current.question) + '|' + current.options.map(normalize).join('|');
+    const key =
+      normalize(current.question) +
+      '|' +
+      current.options.map(normalize).join('|') +
+      (current.requiresImage ? `|image:${current.id}` : '');
     if (lang.language === 'foreign') rejected++;
     else if (seen.has(key)) duplicates++;
     else {
@@ -120,20 +168,19 @@ export function detectQuestions(lines: TextLine[], documentId: string, source: s
     }
     current = null;
   };
-  const repetition = new Map<string, Set<number>>();
   for (const line of lines) {
-    const key = normalize(line.text);
-    if (!repetition.has(key)) repetition.set(key, new Set());
-    repetition.get(key)!.add(line.page);
-  }
-  for (const line of lines) {
-    const raw = line.text.trim();
+    const raw = line.text
+      .trim()
+      .replace(
+        /^(\s*(?:\d{1,5}\s*[.)\-:]\s*)?)[CС]\s*([MМSЅ])\s*[.:]/iu,
+        (_, prefix: string, kind: string) => `${prefix}C${/[MМ]/u.test(kind) ? 'M' : 'S'}.`,
+      );
     if (!raw) continue;
     // Inline variants are split only at explicit letter markers preceded by whitespace.
     const fragments = raw.split(/\s+(?=[A-Da-d][.)]\s+)/);
     for (const text of fragments) {
       const opt = text.match(option);
-      if (opt && current) {
+      if (opt && current && !typedQuestion.test(opt[2])) {
         if (/^\s*[+✓✔*]|[✓✔]|\(corect\)/i.test(text) || line.bold || line.underline) {
           current.sourceAnswer =
             `${current.sourceAnswer || ''} Indiciu editorial, necesită verificare: ${opt[1].toUpperCase()}.`.trim();
@@ -187,18 +234,14 @@ export function detectQuestions(lines: TextLine[], documentId: string, source: s
         continue;
       }
       const num = text.match(numbered);
-      const body = num ? num[1] : text;
+      const body = num ? num[1] : opt && typedQuestion.test(opt[2]) ? opt[2] : text;
       if (irrelevant.test(body) && !questionStart.test(body) && !body.includes('?')) continue;
-      if (
-        (repetition.get(normalize(text))?.size ?? 0) >= 3 &&
-        !num &&
-        !questionStart.test(text) &&
-        !text.includes('?') &&
-        !opt
-      )
-        continue;
       const starts = Boolean(
-        num || line.numbered || questionStart.test(body) || (!current && body.includes('?')),
+        num ||
+        line.numbered ||
+        typedQuestion.test(body) ||
+        questionStart.test(body) ||
+        (!current && body.includes('?')),
       );
       if (starts) {
         finish();

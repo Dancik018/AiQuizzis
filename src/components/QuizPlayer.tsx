@@ -326,7 +326,17 @@ export default function QuizPlayer({
             </>
           ) : (
             <div className="empty" role="status">
-              <h2>Se pregătesc următoarele întrebări...</h2>
+              <h2>
+                {q.requiresImage
+                  ? 'Întrebarea necesită imaginea sursă'
+                  : 'Se pregătesc următoarele întrebări...'}
+              </h2>
+              {q.requiresImage && (
+                <p>
+                  Consultă pagina {q.page} din document. Această întrebare nu poate fi rezolvată
+                  automat fără diagramă. Poți trece la următoarea întrebare.
+                </p>
+              )}
               <p>
                 {preparation
                   .filter((d) => d.status === 'processing')
@@ -345,7 +355,7 @@ export default function QuizPlayer({
                   la alta.
                 </p>
               )}
-              {preparation.every((d) => d.status !== 'processing') && (
+              {!q.requiresImage && preparation.every((d) => d.status !== 'processing') && (
                 <button onClick={onContinue}>Continuă pregătirea AI</button>
               )}
             </div>

@@ -132,8 +132,11 @@ export function apiError(error: unknown) {
       {
         error: fields.includes('provider')
           ? 'Actualizează pagina pentru noua versiune OpenAI. Documentele și progresul sunt salvate.'
-          : `Un item conține date nevalide (${fields.join(', ')}). Lotul va fi împărțit automat; celelalte întrebări continuă.`,
+          : fields.some((f) => /options|originalOptions/.test(f))
+            ? 'Variantele unei întrebări nu sunt separate corect în document. Celelalte întrebări continuă; verifică întrebarea în editor.'
+            : 'O întrebare are o structură nevalidă. Este izolată automat, iar celelalte întrebări continuă.',
         code: fields.includes('provider') ? 'CLIENT_OUTDATED' : 'INVALID_INPUT',
+        fields,
       },
       { status: 400 },
     );

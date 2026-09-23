@@ -1,7 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { ArrowLeft, Check, Copy, Pencil, Search, Sparkles, Trash2, X } from 'lucide-react';
-import { ready, uid, type DocumentSet, type Question } from '@/lib/model';
+import { questionSchema, ready, uid, type DocumentSet, type Question } from '@/lib/model';
 import { solveQuestions } from '@/lib/processing';
 import { sanitizeQuestion, detectAnswerLeakage } from '@/lib/question-safety';
 
@@ -29,11 +29,45 @@ export default function QuestionReview({
   const filtered = doc.questions.filter(
     (q) =>
       q.question.toLowerCase().includes(search.toLowerCase()) &&
-      (filter === 'all' || (filter === 'review' ? !ready(q) : ready(q))),
+      (filter === 'all' ||
+        (filter === 'images' ? q.requiresImage : filter === 'review' ? !ready(q) : ready(q))),
   );
   const pages = Math.max(1, Math.ceil(filtered.length / 15));
   const save = async (q: Question) => {
     q = sanitizeQuestion(q);
+    if (q.requiresImage) {
+      setError(
+        'Întrebarea depinde de o imagine. Consultă pagina sursă și reformulează întrebarea astfel încât să poată fi rezolvată fără imagine.',
+      );
+      return;
+    }
+    if (q.type !== 'open') {
+      const indices =
+        q.type === 'multiple'
+          ? [...new Set(q.correctOptionIndices || [])].sort((a, b) => a - b)
+          : q.correctOptionIndex === null
+            ? []
+            : [q.correctOptionIndex];
+      if (
+        q.options.length < 2 ||
+        q.options.some((o) => !o.trim()) ||
+        !indices.length ||
+        indices.some((i) => !Number.isInteger(i) || i < 0 || !q.options[i])
+      ) {
+        setError('Completează variantele și selectează cel puțin un răspuns corect.');
+        return;
+      }
+      q = {
+        ...q,
+        correctOptionIndices: indices,
+        correctOptionIndex: indices[0],
+        correctAnswer: indices.map((i) => q.options[i]).join('; '),
+      };
+    }
+    if (!questionSchema.safeParse(q).success) {
+      setError('Verifică lungimea întrebării și a variantelor; sunt permise maximum 12 variante.');
+      return;
+    }
     if (detectAnswerLeakage(q.question, q.correctAnswer)) {
       setError('Textul întrebării dezvăluie răspunsul. Reformulează întrebarea.');
       return;
@@ -164,6 +198,7 @@ export default function QuestionReview({
           <option value="all">Toate întrebările</option>
           <option value="ready">Pregătite</option>
           <option value="review">Necesită verificare</option>
+          <option value="images">Depind de imagini</option>
         </select>
       </div>
       <div className="question-list">
@@ -177,9 +212,11 @@ export default function QuestionReview({
                   <span className={ready(q) ? 'badge green' : 'badge amber'}>
                     {ready(q)
                       ? 'Pregătită'
-                      : q.language === 'foreign'
-                        ? 'Limbă străină'
-                        : 'Necesită verificare'}
+                      : q.requiresImage
+                        ? 'Necesită imaginea sursă'
+                        : q.language === 'foreign'
+                          ? 'Limbă străină'
+                          : 'Necesită verificare'}
                   </span>
                   {q.possibleDuplicate && <span className="badge amber">Posibil duplicat</span>}
                   <span>
@@ -188,6 +225,12 @@ export default function QuestionReview({
                   </span>
                 </div>
                 <h3>{q.question}</h3>
+                {q.requiresImage && (
+                  <p className="analysis-status">
+                    Consultă diagrama de la pagina {q.page}. Întrebarea este exclusă din quiz până
+                    când o reformulezi cu informațiile necesare; AI-ul nu ghicește imaginea.
+                  </p>
+                )}
                 {q.solveError && <p className="analysis-status">{q.solveError}</p>}
                 <p>
                   {q.solved

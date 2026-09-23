@@ -21,7 +21,13 @@ export const defaultProfile = (id: SolverProfile['id']): SolverProfile => ({
 export const estimatedOutputTokens = (q: Question, generate: boolean) =>
   generate && !q.options.length
     ? Math.ceil(Math.max(200, 120 + q.question.length * 0.3 + (q.sourceAnswer?.length || 0) * 0.7))
-    : Math.ceil(120 + Math.max(0, ...q.options.map((o) => o.length)) / 2.5);
+    : Math.ceil(
+        120 +
+          (q.type === 'multiple'
+            ? q.options.reduce((n, o) => n + o.length, 0)
+            : Math.max(0, ...q.options.map((o) => o.length))) /
+            2.5,
+      );
 export const estimatedTokens = (q: Question, generate: boolean) =>
   Math.ceil(
     (q.question.length +
@@ -57,7 +63,9 @@ export function planBatches(
         ) ||
         tokens + cost > profile.tokenBudget ||
         outputTokens + estimatedOutputTokens(q, generate) >
-          (generate && (!q.options.length || batch.some((item) => !item.options.length))
+          ((generate && (!q.options.length || batch.some((item) => !item.options.length))) ||
+          q.type === 'multiple' ||
+          batch.some((item) => item.type === 'multiple')
             ? 4500
             : 9000) ||
         bytes + size > 300000)

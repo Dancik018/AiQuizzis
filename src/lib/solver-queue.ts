@@ -52,11 +52,12 @@ export async function runSolverQueue(
   generate = resume ? doc.processing!.generateOptions : generate;
   const optionsOnly = resume ? doc.processing?.optionsOnly : io.optionsOnly;
   const needsWork = (q: Question) =>
-    optionsOnly
+    !q.requiresImage &&
+    (optionsOnly
       ? (!q.options.length || q.status === 'verifying') && q.language !== 'foreign'
       : needsAnalysis(q) ||
         (generate && !q.options.length && q.language !== 'foreign') ||
-        (q.solved && !ready(q) && !q.strengthened && !q.reviewed && q.language !== 'foreign');
+        (q.solved && !ready(q) && !q.strengthened && !q.reviewed && q.language !== 'foreign'));
   let current: DocumentSet = {
     ...doc,
     status: 'processing',

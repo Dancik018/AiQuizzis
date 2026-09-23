@@ -14,6 +14,7 @@ export const questionSchema = z.object({
   sourceAnswer: z.string().max(8000).optional(),
   answerSource: z.enum(['document', 'ai', 'manual']).optional(),
   answerLeakage: z.boolean().optional(),
+  requiresImage: z.boolean().optional(),
   verification: z.enum(['single', 'independent', 'judge']).optional(),
   passes: z
     .array(
@@ -69,6 +70,7 @@ export type DocumentSet = {
   duplicates: number;
   status: 'extracted' | 'processing' | 'ready' | 'partial';
   error?: string;
+  repairNotice?: string;
   retryAt?: number;
   extractionMs?: number;
   processing?: {
@@ -153,6 +155,8 @@ export const normalize = (text: string) =>
     .replace(/\s+/g, ' ');
 export const ready = (q: Question) =>
   (!q.status || q.status === 'verified') &&
+  !q.requiresImage &&
+  q.options.length <= 12 &&
   !q.answerLeakage &&
   !detectAnswerLeakage(q.question, q.correctAnswer) &&
   !invalidAnswer(q.correctAnswer) &&
@@ -169,4 +173,7 @@ export const ready = (q: Question) =>
         : q.correctOptionIndex !== null && q.correctOptionIndex < q.options.length)));
 export const uid = () => crypto.randomUUID();
 export const needsAnalysis = (q: Question) =>
-  !q.reviewed && q.language !== 'foreign' && (!q.solved || q.language === 'uncertain');
+  !q.requiresImage &&
+  !q.reviewed &&
+  q.language !== 'foreign' &&
+  (!q.solved || q.language === 'uncertain');

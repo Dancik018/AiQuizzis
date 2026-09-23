@@ -8,6 +8,7 @@ export default function PreparationStatus({
   documents: DocumentSet[];
   questions: Question[];
 }) {
+  const running = documents.some((d) => d.status === 'processing');
   const prepared = questions.filter(ready).length;
   const samples = documents.flatMap((d) => d.processing?.metrics?.recent || []);
   const count = samples.reduce((sum, s) => sum + s.count, 0);
@@ -25,9 +26,13 @@ export default function PreparationStatus({
         <progress value={prepared} max={Math.max(1, questions.length)} />
         <p>
           Timp estimat rămas:{' '}
-          {seconds === null
-            ? 'se calculează după primul lot'
-            : `${Math.floor(seconds / 60)} min ${seconds % 60} sec`}
+          {!running
+            ? prepared === questions.length
+              ? 'finalizat'
+              : 'pregătirea este oprită; verifică întrebările rămase'
+            : seconds === null
+              ? 'se calculează după primul lot'
+              : `${Math.floor(seconds / 60)} min ${seconds % 60} sec`}
         </p>
         {documents.map((d) => (
           <p key={d.id}>

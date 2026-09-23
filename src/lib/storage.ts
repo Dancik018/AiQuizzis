@@ -1,6 +1,7 @@
 import { openDB } from 'idb';
 import type { DocumentSet, QuizSession } from './model';
 import { sanitizeQuestion } from './question-safety';
+import { repairDocument } from './document-repair';
 let connection: ReturnType<typeof openDB> | undefined;
 let cacheConnection: ReturnType<typeof openDB> | undefined;
 const database = () =>
@@ -33,7 +34,9 @@ export async function cacheAnswer(key: string, answer: unknown) {
 }
 export async function getDocuments(): Promise<DocumentSet[]> {
   const docs: DocumentSet[] = await (await database()).getAll('documents');
-  return docs.map((d) => ({ ...d, questions: d.questions.map(sanitizeQuestion) }));
+  const repaired = docs.map(repairDocument);
+  for (let i = 0; i < docs.length; i++) if (repaired[i] !== docs[i]) await putDocument(repaired[i]);
+  return repaired.map((d) => ({ ...d, questions: d.questions.map(sanitizeQuestion) }));
 }
 export async function putDocument(doc: DocumentSet) {
   return (await database()).put('documents', {

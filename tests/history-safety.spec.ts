@@ -113,3 +113,44 @@ test('manual quiz never shows an embedded Bohr answer before submission', async 
   ).toHaveCount(0);
   await expect(page.locator('.feedback')).toHaveCount(0);
 });
+
+test('manual multiple-answer editing saves selected option texts after edits', async ({ page }) => {
+  await page.route('**/api/config', (r) => r.fulfill({ json: { ai: false } }));
+  await page.goto('/');
+  await page.locator('input[type=file]').setInputFiles({
+    name: 'edit-multiple.docx',
+    mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    buffer: docxFixture([
+      { text: '1. CM. Care dintre următoarele numere sunt pare?', page: 1 },
+      { text: 'A. 2', page: 1 },
+      { text: 'B. 3', page: 1 },
+      { text: 'C. 4', page: 1 },
+    ]),
+  });
+  await page.getByRole('button', { name: 'Vezi întrebările' }).click();
+  await page.getByRole('button', { name: 'Editează întrebarea 1', exact: true }).click();
+  await page.locator('.option-edit input[type=checkbox]').nth(0).check();
+  await page.locator('.option-edit input[type=checkbox]').nth(2).check();
+  await page.getByLabel('Varianta A', { exact: true }).fill('6');
+  await page.getByRole('button', { name: 'Salvează', exact: true }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page.reload();
+  await page.getByRole('button', { name: 'Vezi întrebările' }).click();
+  await page.getByRole('button', { name: 'Editează întrebarea 1', exact: true }).click();
+  await expect(page.getByLabel('Varianta A', { exact: true })).toHaveValue('6');
+  await expect(page.locator('.option-edit input[type=checkbox]').nth(0)).toBeChecked();
+  await expect(page.locator('.option-edit input[type=checkbox]').nth(2)).toBeChecked();
+  const answer = await page.evaluate(async () => {
+    const request = indexedDB.open('aiquiz', 1);
+    const db = await new Promise<IDBDatabase>(
+      (resolve) => (request.onsuccess = () => resolve(request.result)),
+    );
+    const docs = await new Promise<{ questions: { correctAnswer: string }[] }[]>((resolve) => {
+      const r = db.transaction('documents').objectStore('documents').getAll();
+      r.onsuccess = () => resolve(r.result);
+    });
+    db.close();
+    return docs[0].questions[0].correctAnswer;
+  });
+  expect(answer).toBe('6; 4');
+});

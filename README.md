@@ -116,3 +116,22 @@ First-pass option generation uses a dedicated compact schema: one correct answer
 Two requests can warm the initial buffer when generation is enabled, then the existing bounded pool handles the remaining document. Adaptive batches now budget output tokens and source-answer length as well as input size; long definitions are split earlier. The best-effort application limit is configurable through QUIZ_API_REQUESTS_PER_MINUTE (default 90, maximum 300). Local throttling returns the actual remaining window, while provider Retry-After and quota errors remain honored. This is per-instance protection, not a distributed rate limiter.
 
 A controlled real-API comparison on the same 20 computing questions measured first-pass generation at 21.6 seconds / 2,494 output tokens before, versus 14.3 seconds / 1,897 output tokens after. A second compact run generated and independently verified all 20 in 21.3 seconds total. These are individual measurements, not guaranteed latency or proof of correctness for every subject. Optimization follows [OpenAI latency guidance](https://developers.openai.com/api/docs/guides/latency-optimization) on reducing output tokens and parallelizing independent work.
+
+
+### Trilingual medical test documents
+
+The parser recognizes numbered and unnumbered CS/CM blocks, SC/MC variants and Cyrillic lookalikes in those markers. Translation blocks are separated before option collection and repeated question stems are not mistaken for headers. Whole-question language evidence is primary; options help resolve ambiguous short stems. Uncertain language remains subject to AI verification. A Cyrillic lookalike inside an otherwise Romanian word does not make the entire question Russian.
+
+Malformed saved documents with merged lists exceeding 12 choices are rebuilt from their saved source lines on load, rather than truncating choices or requiring upload. Matching question IDs and unchanged validated answers are retained; reviewed additions are preserved. The repaired queue restarts against the clean questions, and the interface explains the repair.
+
+Questions explicitly referring to missing diagrams are marked with their source page, excluded from automatic solving and new quizzes, and available through the review filter “Depind de imagini”. Current extraction does not attach diagram crops. Users must consult the source and rewrite such questions with sufficient textual context; the AI is not allowed to guess unseen figures. Full source pages are not displayed in quizzes because they may include highlighted answer keys.
+
+Regression coverage includes 300 synthetic trilingual question groups, repeated stems, mixed-script CS/CM, preserved five-option sets, saved-data repair and missing-diagram guards. A supplied 218-page PDF was extracted with the actual browser PDF parser: before the fix 503 candidates exceeded the option limit; after the fix every extracted candidate passed the request schema with five options. The private source document is not part of the repository.
+
+
+Independent choice verification also uses the compact schema for existing single/multiple-answer questions, preserving every original option. Multiple-answer batches budget the possible combined answer length. Foreign-language verdicts are persisted even when the model supplies no answer, avoiding wasteful repeated solving of rejected translations. Processing progress counts completed verification or isolated failures, rather than calling a first-pass answer finished; diagram/foreign exclusions are shown separately. Manual multiple-answer edits recompute the answer from selected options on save.
+
+
+A real OpenAI end-to-end run on that 218-page medical PDF completed all queued work in 426.6 seconds: 132 HTTP-successful batches, zero invalid-request questions. Of 591 candidates, the final safety classification retained 476 ready questions, excluded 33 foreign-language candidates and 51 figure-dependent questions, and left 31 for manual review. Two of the figure references were identified from this run and added to the arrow/highlighted-structure guard. This is a processing/recovery benchmark, not independent medical validation of every AI answer or a guarantee of latency. Source images are still not attached automatically.
+
+New quizzes exclude exhausted/failed questions; existing saved quiz order is preserved. A completed document therefore starts a playable quiz from ready answers instead of reserving unresolved items indefinitely. Paused preparation no longer displays a misleading countdown.

@@ -55,6 +55,11 @@ export const invalidAnswer = (s: string) =>
   /^(?:unknown|needs verification|nu stiu|nu sunt sigur|probabil|necesita verificare|not sure)$/i.test(
     folded(s),
   );
+export function requiresDiagram(text: string) {
+  return /\b(?:picture|figure|image)\b|\bsageti\b|\b(?:structur|formatiun|element|organ)\w*\s+(?:evidentiat|numerotat|marcat)\w*\b|\b(?:in|din|pe|aceeasi)\s+(?:imagine|figura)|\b(?:indicat|reprezentat|shown).*\b(?:imagine|figura|figure|picture)\b/.test(
+    folded(text),
+  );
+}
 export function sanitizeQuestion(q: Question): Question {
   const clean = normalizeQuestion(q.question);
   const options = q.options.map((o) =>
@@ -68,6 +73,7 @@ export function sanitizeQuestion(q: Question): Question {
   return {
     ...q,
     question: clean.question,
+    requiresImage: requiresDiagram(clean.question),
     options,
     rawSourceText: q.rawSourceText || (clean.changed ? q.question : undefined),
     sourceAnswer: q.sourceAnswer || clean.answer || undefined,

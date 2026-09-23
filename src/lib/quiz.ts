@@ -9,6 +9,8 @@ export function shuffled<T>(items: T[]): T[] {
   }
   return result;
 }
+export const quizCandidate = (q: Question) =>
+  !q.requiresImage && q.language !== 'foreign' && !q.solveError && q.status !== 'failed';
 export function createQuiz(
   questions: Question[],
   config: QuizConfig,
@@ -21,7 +23,8 @@ export function createQuiz(
       .map(sanitizeQuestion)
       .filter(
         (q) =>
-          (progressive ? q.language !== 'foreign' : ready(q)) &&
+          quizCandidate(q) &&
+          (progressive || ready(q)) &&
           (q.type === 'open' ? config.includeOpen : config.includeMC),
       ),
   );
@@ -31,6 +34,7 @@ export function createQuiz(
     throw new Error(
       'Nu există întrebări pregătite pentru această selecție. Verifică răspunsurile din editor.',
     );
+  progressive = progressive && available.some((q) => !ready(q));
   return {
     id: uid(),
     title,

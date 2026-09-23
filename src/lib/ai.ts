@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { normalize, ready, type Question, type BatchUsage } from './model';
 import { structuredAI } from './structured-ai';
+import { estimatedOutputTokens } from './batching';
 import { generateChoices, verifyChoices } from './ai-generation';
 import type { ProviderName } from './ai-config';
 import {
@@ -34,16 +35,15 @@ const boundary =
 export class QuizAIProvider {
   constructor(private selected?: ProviderName) {}
   async solve(questions: Question[], generateOptions: boolean, strong = false) {
-    questions = questions.map(sanitizeQuestion);
+    questions = questions.map(sanitizeQuestion).filter((q) => !q.requiresImage);
+    if (!questions.length) return { questions: [] };
     const aliases = new Map(questions.map((q, i) => [`q${i}`, q]));
     let usage: BatchUsage | undefined;
     const compactGeneration =
       generateOptions && questions.every((q) => !q.options.length && !q.passes?.length);
-    const compactVerification =
-      generateOptions &&
-      questions.every(
-        (q) => q.options.length === 4 && q.originalOptions.length === 0 && q.passes?.length === 1,
-      );
+    const compactVerification = questions.every(
+      (q) => q.options.length >= 2 && q.passes?.length === 1,
+    );
     const result = compactVerification
       ? await verifyChoices(questions, this.selected, (u) => {
           usage = { ...u, ids: questions.map((q) => q.id) };
@@ -87,7 +87,15 @@ Each item has a stage: solver, verifier or judge. Solver may use sourceAnswer as
                 }),
               },
             ],
-            Math.min(16000, 800 + questions.length * 340),
+            Math.min(
+              16000,
+              1000 +
+                questions.reduce(
+                  (sum, q) =>
+                    sum + estimatedOutputTokens(q, generateOptions) + (strong ? 400 : 200),
+                  0,
+                ),
+            ),
             this.selected,
             strong,
             (u) => {
@@ -100,6 +108,22 @@ Each item has a stage: solver, verifier or judge. Solver may use sourceAnswer as
     for (const item of result.questions) {
       const q = aliases.get(item.id);
       if (!q || counts.get(item.id) !== 1) continue;
+      if (
+        item.language === 'foreign' &&
+        item.languageConfidence >= 0.8 &&
+        item.languageConfidence <= 1
+      ) {
+        output.push({
+          ...q,
+          language: 'foreign',
+          languageConfidence: item.languageConfidence,
+          solved: true,
+          strengthened: true,
+          status: 'failed',
+          solveError: undefined,
+        });
+        continue;
+      }
       const clean = normalizeQuestion(item.question || q.question);
       const options = q.options.length ? q.options : item.generatedOptions;
       let indices = [...new Set(item.correctOptionIndices)].sort((a, b) => a - b);
@@ -157,7 +181,7 @@ Each item has a stage: solver, verifier or judge. Solver may use sourceAnswer as
         normalize(previous.answer) === normalize(answer) &&
         normalize(previous.question) === normalize(clean.question);
       const risky =
-        /medical|anatom|hormon|pancreas|bohr|electron|protocol|memori|nerv|arter|celul|tehnic|fizic|chimic/i.test(
+        /^(?:CS|CM)[.:]|medical|anatom|hormon|pancreas|bohr|electron|protocol|memori|nerv|arter|celul|tehnic|fizic|chimic/i.test(
           clean.question,
         );
       const needs =
