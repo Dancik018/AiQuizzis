@@ -8,6 +8,10 @@ export const accountErrors: Record<string, [number, string]> = {
     'Schimbă parola temporară pentru a activa contul de administrator.',
   ],
   ADMIN_REQUIRED: [403, 'Această acțiune este disponibilă numai administratorului.'],
+  INSUFFICIENT_CREDITS: [
+    409,
+    'Numărul de eliminat depășește generările disponibile. Reîncarcă lista și încearcă din nou.',
+  ],
   NO_CREDITS: [
     402,
     'Nu mai ai generări disponibile. Cere administratorului încercări suplimentare.',

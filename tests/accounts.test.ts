@@ -13,6 +13,7 @@ test('PostgreSQL enforces private ownership, atomic credits, reserved admin and 
     await db.exec(readFileSync('supabase/migrations/202609230001_accounts.sql', 'utf8'));
     await db.exec(readFileSync('supabase/migrations/202609230002_admin_bootstrap.sql', 'utf8'));
     await db.exec(readFileSync('supabase/migrations/202609230003_saved_quiz_sources.sql', 'utf8'));
+    await db.exec(readFileSync('supabase/migrations/202609240001_admin_debits.sql', 'utf8'));
     for (const n of [1, 2])
       await db.query('insert into auth.users(id,email) values($1,$2)', [
         uid(n),
@@ -82,6 +83,32 @@ test('PostgreSQL enforces private ownership, atomic credits, reserved admin and 
       (await as<{ credits: number }>(1, 'select credits from profiles')).rows[0].credits,
       3,
     );
+    await as(3, 'select public.manage_account($1,-2,null)', [uid(1)]);
+    assert.equal(
+      (await as<{ credits: number }>(1, 'select credits from profiles')).rows[0].credits,
+      1,
+    );
+    await assert.rejects(
+      as(3, 'select public.manage_account($1,-2,null)', [uid(1)]),
+      /INSUFFICIENT_CREDITS/,
+    );
+    await assert.rejects(
+      as(1, 'select public.manage_account($1,-1,null)', [uid(2)]),
+      /ADMIN_REQUIRED/,
+    );
+    await assert.rejects(
+      as(3, 'select public.manage_account($1,-1,null)', [uid(3)]),
+      /USER_NOT_FOUND/,
+    );
+    assert.equal(
+      (
+        await db.query<{ delta: number }>(
+          "select delta from credit_events where reason='admin_debit'",
+        )
+      ).rows[0].delta,
+      -2,
+    );
+    await as(3, 'select public.manage_account($1,2,null)', [uid(1)]);
     await as(1, 'select public.save_document($1,0)', [doc('c')]);
     await assert.rejects(
       as(1, 'select public.save_document($1,1)', [{ ...doc('a'), lines: [] }]),

@@ -94,14 +94,19 @@ export default function AdminPanel() {
                   className="button-row"
                   onSubmit={(e) => {
                     e.preventDefault();
-                    void change({
-                      id: u.id,
-                      credits: Number(new FormData(e.currentTarget).get('credits')),
-                    });
+                    const amount = Number(new FormData(e.currentTarget).get('credits'));
+                    const removing =
+                      (e.nativeEvent as SubmitEvent).submitter?.getAttribute('value') === 'remove';
+                    if (removing && amount > u.credits) {
+                      setNotice('');
+                      setError(`Poți elimina cel mult ${u.credits} generări pentru ${u.email}.`);
+                      return;
+                    }
+                    void change({ id: u.id, credits: removing ? -amount : amount });
                   }}
                 >
                   <input
-                    aria-label={`Generări suplimentare pentru ${u.email}`}
+                    aria-label={`Număr de generări pentru ${u.email}`}
                     name="credits"
                     type="number"
                     min={1}
@@ -109,7 +114,17 @@ export default function AdminPanel() {
                     defaultValue={2}
                     required
                   />
-                  <button disabled={busy}>Adaugă generări</button>
+                  <button type="submit" name="operation" value="add" disabled={busy}>
+                    Adaugă generări
+                  </button>
+                  <button
+                    type="submit"
+                    name="operation"
+                    value="remove"
+                    disabled={busy || u.credits === 0}
+                  >
+                    Elimină generări
+                  </button>
                 </form>
                 <button
                   disabled={busy}

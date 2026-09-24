@@ -31,7 +31,7 @@ export async function POST(req: Request) {
       req,
       z.object({
         id: z.uuid(),
-        credits: z.number().int().min(0).max(1000).default(0),
+        credits: z.number().int().min(-1000).max(1000).default(0),
         disabled: z.boolean().optional(),
       }),
       2048,
