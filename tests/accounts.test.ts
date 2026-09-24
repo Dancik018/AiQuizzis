@@ -14,6 +14,7 @@ test('PostgreSQL enforces private ownership, atomic credits, reserved admin and 
     await db.exec(readFileSync('supabase/migrations/202609230002_admin_bootstrap.sql', 'utf8'));
     await db.exec(readFileSync('supabase/migrations/202609230003_saved_quiz_sources.sql', 'utf8'));
     await db.exec(readFileSync('supabase/migrations/202609240001_admin_debits.sql', 'utf8'));
+    await db.exec(readFileSync('supabase/migrations/202609240002_delete_accounts.sql', 'utf8'));
     for (const n of [1, 2])
       await db.query('insert into auth.users(id,email) values($1,$2)', [
         uid(n),
@@ -137,6 +138,46 @@ test('PostgreSQL enforces private ownership, atomic credits, reserved admin and 
     assert.equal(
       (await as<{ credits: number }>(1, 'select credits from profiles')).rows[0].credits,
       0,
+    );
+    await assert.rejects(
+      as(1, 'select public.delete_account($1,$2)', [uid(2), 'user2@example.test']),
+      /ADMIN_REQUIRED/,
+    );
+    await assert.rejects(
+      as(3, 'select public.delete_account($1,$2)', [uid(3), 'ursud09@gmail.com']),
+      /ADMIN_PROTECTED/,
+    );
+    await assert.rejects(
+      as(3, 'select public.delete_account($1,$2)', [uid(1), 'wrong@example.test']),
+      /DELETE_CONFIRMATION/,
+    );
+    await db.query('insert into credit_events(user_id,actor_id,delta,reason) values($1,$2,0,$3)', [
+      uid(2),
+      uid(1),
+      'historical',
+    ]);
+    await as(3, 'select public.delete_account($1,$2)', [uid(1), 'user1@example.test']);
+    for (const table of ['auth.users', 'profiles', 'documents', 'quiz_sessions', 'credit_events']) {
+      const key = ['auth.users', 'profiles'].includes(table) ? 'id' : 'user_id';
+      assert.equal(
+        (await db.query(`select * from ${table} where ${key}=$1`, [uid(1)])).rows.length,
+        0,
+      );
+    }
+    assert.equal(
+      (
+        await db.query<{ actor_id: string | null }>(
+          'select actor_id from credit_events where reason=$1',
+          ['historical'],
+        )
+      ).rows[0].actor_id,
+      null,
+    );
+    assert.equal((await db.query('select id from auth.users')).rows.length, 2);
+    await assert.rejects(as(1, "select public.claim_ai('b',1)"), /ACCOUNT_BLOCKED/);
+    await assert.rejects(
+      as(3, 'select public.delete_account($1,$2)', [uid(1), 'user1@example.test']),
+      /USER_NOT_FOUND/,
     );
   } finally {
     await db.close();

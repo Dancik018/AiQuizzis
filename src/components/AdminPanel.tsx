@@ -21,20 +21,25 @@ export default function AdminPanel() {
   useEffect(() => {
     void load().catch((e) => setError(e.message));
   }, [load]);
-  const change = async (data: unknown) => {
+  const change = async (data: unknown, deleting = false) => {
     setBusy(true);
     setError('');
     setNotice('');
     try {
       const r = await accountFetch('/api/admin', {
-        method: 'POST',
+        method: deleting ? 'DELETE' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
       });
       const v = await r.json();
       if (!r.ok) throw new Error(v.error);
-      await load();
-      setNotice('Modificarea a fost salvată.');
+      if (deleting && users.length === 1 && page > 0) setPage(page - 1);
+      else await load();
+      setNotice(
+        deleting
+          ? 'Contul și toate documentele, quiz-urile și istoricul său au fost șterse.'
+          : 'Modificarea a fost salvată.',
+      );
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -134,6 +139,24 @@ export default function AdminPanel() {
                   }}
                 >
                   {u.disabled ? 'Reactivează contul' : 'Suspendă contul'}
+                </button>
+                <button
+                  className="danger"
+                  disabled={busy}
+                  onClick={() => {
+                    const email = prompt(
+                      `Ștergi definitiv contul ${u.email}? Documentele, quiz-urile, istoricul și accesul acestui utilizator vor fi eliminate. Acțiunea nu poate fi anulată. Pentru confirmare, scrie adresa de email a utilizatorului:`,
+                    );
+                    if (email === null) return;
+                    if (email.trim().toLowerCase() !== u.email.toLowerCase()) {
+                      setNotice('');
+                      setError('Adresa introdusă nu corespunde. Contul nu a fost șters.');
+                      return;
+                    }
+                    void change({ id: u.id, email: email.trim() }, true);
+                  }}
+                >
+                  Șterge definitiv contul
                 </button>
               </div>
             )}

@@ -26,6 +26,8 @@ export const accountErrors: Record<string, [number, string]> = {
     'Documentul a fost modificat în altă filă sau pe alt dispozitiv. Reîncarcă pagina înainte de a continua.',
   ],
   SOURCE_IMMUTABLE: [409, 'Pentru un document diferit folosește o încărcare nouă.'],
+  DELETE_CONFIRMATION: [400, 'Confirmă ștergerea introducând adresa corectă de email.'],
+  ADMIN_PROTECTED: [403, 'Conturile de administrator nu pot fi șterse.'],
   USER_NOT_FOUND: [404, 'Utilizatorul nu poate fi modificat.'],
   INVALID_DATA: [400, 'Datele trimise nu sunt valide.'],
 };

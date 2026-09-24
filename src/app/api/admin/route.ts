@@ -47,3 +47,20 @@ export async function POST(req: Request) {
     return apiError(e);
   }
 }
+
+export async function DELETE(req: Request) {
+  try {
+    const { db, profile } = await account(req);
+    if (!profile.is_admin) throw new Error('ADMIN_REQUIRED');
+    const data = await body(
+      req,
+      z.object({ id: z.uuid(), email: z.email().max(254) }).strict(),
+      2048,
+    );
+    const result = await db.rpc('delete_account', { target: data.id, confirmed_email: data.email });
+    checkDatabase(result.error);
+    return privateJSON({ ok: true });
+  } catch (e) {
+    return apiError(e);
+  }
+}
