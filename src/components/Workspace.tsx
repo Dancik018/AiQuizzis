@@ -47,14 +47,20 @@ const defaultConfig: QuizConfig = {
   includeOpen: true,
 };
 
-export default function Workspace({ accountId }: { accountId: string }) {
+export default function Workspace({
+  accountId,
+  onRequireAccount,
+}: {
+  accountId: string;
+  onRequireAccount?: () => void;
+}) {
   const [documents, setDocuments] = useState<DocumentSet[]>([]);
   const [sessions, setSessions] = useState<QuizSession[]>([]);
   const [view, setView] = useState<'documents' | 'history' | 'review' | 'quiz'>('documents');
   const [selected, setSelected] = useState<string[]>([]);
   const [reviewId, setReviewId] = useState('');
   const [sessionId, setSessionId] = useState('');
-  const [loaded, setLoaded] = useState(false);
+  const [loaded, setLoaded] = useState(!accountId);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -119,34 +125,35 @@ export default function Workspace({ accountId }: { accountId: string }) {
     await putSession(session);
   };
   useEffect(() => {
-    Promise.all([getDocuments(), getSessions()])
-      .then(([docs, quizzes]) => {
-        setDocuments(docs.sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
-        const restored = quizzes
-          .sort((a, b) => (b.updatedAt || b.startedAt).localeCompare(a.updatedAt || a.startedAt))
-          .map((s) =>
-            hydrateQuiz(
-              s,
-              docs.flatMap((d) => d.questions),
-            ),
-          );
-        sessionsRef.current = restored;
-        setSessions(restored);
-        try {
-          const active = localStorage.getItem(`aiquiz-active-${accountId}`);
-          if (active && restored.some((s) => s.id === active && !s.completedAt)) {
-            activeRef.current = active;
-            setSessionId(active);
-            setView('quiz');
-          }
-        } catch {}
-      })
-      .catch(() =>
-        setError(
-          'Datele contului nu au putut fi încărcate. Verifică conexiunea și reîncarcă pagina.',
-        ),
-      )
-      .finally(() => setLoaded(true));
+    if (accountId)
+      Promise.all([getDocuments(), getSessions()])
+        .then(([docs, quizzes]) => {
+          setDocuments(docs.sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
+          const restored = quizzes
+            .sort((a, b) => (b.updatedAt || b.startedAt).localeCompare(a.updatedAt || a.startedAt))
+            .map((s) =>
+              hydrateQuiz(
+                s,
+                docs.flatMap((d) => d.questions),
+              ),
+            );
+          sessionsRef.current = restored;
+          setSessions(restored);
+          try {
+            const active = localStorage.getItem(`aiquiz-active-${accountId}`);
+            if (active && restored.some((s) => s.id === active && !s.completedAt)) {
+              activeRef.current = active;
+              setSessionId(active);
+              setView('quiz');
+            }
+          } catch {}
+        })
+        .catch(() =>
+          setError(
+            'Datele contului nu au putut fi încărcate. Verifică conexiunea și reîncarcă pagina.',
+          ),
+        )
+        .finally(() => setLoaded(true));
     fetch('/api/config')
       .then((r) => r.json())
       .then((value) => {
@@ -223,6 +230,10 @@ export default function Workspace({ accountId }: { accountId: string }) {
     }
   };
   const upload = async (file?: File) => {
+    if (!accountId) {
+      onRequireAccount?.();
+      return;
+    }
     if (!file || busy) return;
     setBusy(true);
     setError('');
@@ -365,8 +376,12 @@ export default function Workspace({ accountId }: { accountId: string }) {
           <div className="local-note">
             <ShieldCheck size={21} />
             <div>
-              <b>Contul tău de învățare.</b>
-              <p>Documentele și progresul sunt salvate în contul tău.</p>
+              <b>{accountId ? 'Contul tău de învățare.' : 'Spațiul tău de învățare.'}</b>
+              <p>
+                {accountId
+                  ? 'Documentele și progresul sunt salvate în contul tău.'
+                  : 'Creează un cont pentru a încărca documente și a salva progresul.'}
+              </p>
             </div>
           </div>
           <div className="theme-control" aria-label="Tema interfeței">
@@ -616,7 +631,11 @@ export default function Workspace({ accountId }: { accountId: string }) {
                   hidden
                   onChange={(e) => upload(e.target.files?.[0])}
                 />
-                <button className="primary" disabled={busy} onClick={() => input.current?.click()}>
+                <button
+                  className="primary"
+                  disabled={busy}
+                  onClick={() => (accountId ? input.current?.click() : onRequireAccount?.())}
+                >
                   <Plus size={18} /> Selectează fișier
                 </button>
                 <div className="upload-meta">

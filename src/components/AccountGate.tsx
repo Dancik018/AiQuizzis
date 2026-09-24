@@ -27,7 +27,8 @@ export default function AccountGate() {
     [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false),
     [admin, setAdmin] = useState(false),
-    [password, setPassword] = useState(false);
+    [password, setPassword] = useState(false),
+    [showLogin, setShowLogin] = useState(false);
   useEffect(() => {
     const refresh = () =>
       fetch('/api/account', { cache: 'no-store' })
@@ -53,8 +54,10 @@ export default function AccountGate() {
     };
     window.addEventListener('aiquiz-account-changed', changed);
     if (new URLSearchParams(location.search).has('changePassword')) setPassword(true);
-    if (new URLSearchParams(location.search).has('authError'))
+    if (new URLSearchParams(location.search).has('authError')) {
       setError('Linkul de autentificare nu este valid sau a expirat.');
+      setShowLogin(true);
+    }
     return () => window.removeEventListener('aiquiz-account-changed', changed);
   }, []);
   if (!loaded)
@@ -131,10 +134,37 @@ export default function AccountGate() {
         </section>
       </main>
     );
+  if (!user && !showLogin)
+    return (
+      <>
+        <header className="account-bar">
+          <span>Două pregătiri gratuite pentru fiecare cont nou</span>
+          <button onClick={() => setShowLogin(true)}>Autentificare / Creează cont</button>
+        </header>
+        <Workspace
+          accountId=""
+          onRequireAccount={() => {
+            setMessage(
+              'Ai nevoie de un cont pentru a încărca documente și a genera quiz-uri. Autentifică-te sau creează un cont cu Google.',
+            );
+            setShowLogin(true);
+          }}
+        />
+      </>
+    );
   if (!user)
     return (
       <main className="auth-shell">
         <section className="auth-card">
+          <button
+            type="button"
+            onClick={() => {
+              setShowLogin(false);
+              setMessage('');
+            }}
+          >
+            ← Înapoi la pagina principală
+          </button>
           <a href="/privacy">Cum sunt folosite datele tale</a>
           <span className="eyebrow">AIQUIZ · SPAȚIUL TĂU DE ÎNVĂȚARE</span>
           <h1>
