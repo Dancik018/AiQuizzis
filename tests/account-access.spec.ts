@@ -13,7 +13,7 @@ test('unauthenticated visitors cannot upload or access cloud data, admin or AI',
   await page.getByRole('button', { name: 'Selectează fișier' }).click();
   await expect(page.getByRole('heading', { name: 'Bine ai revenit' })).toBeVisible();
   await expect(page.getByText(/Ai nevoie de un cont pentru a încărca/)).toBeVisible();
-  await page.getByRole('button', { name: '← Înapoi la pagina principală' }).click();
+  await page.getByRole('button', { name: 'Înapoi la pagina principală' }).click();
   await expect(page.getByRole('button', { name: 'Selectează fișier' })).toBeVisible();
   await page.locator('.upload-zone').evaluate((el) => {
     const dataTransfer = new DataTransfer();

@@ -1407,22 +1407,328 @@ legend {
 }
 
 /* Account boundaries and administrator workspace */
-.auth-shell { min-height:100vh; display:grid; place-items:center; padding:24px; background:var(--background,#f5f9f7); }
-.auth-card { width:min(100%,480px); background:var(--surface,#fff); border:1px solid var(--border,#dbe5e0); border-radius:20px; padding:32px; box-shadow:0 16px 60px #163b2710; }
-.auth-card h1 { margin:12px 0; font-size:30px; }
-.auth-card form { display:grid; gap:18px; margin:24px 0; }
-.auth-card label { display:grid; gap:8px; }
-.auth-card input { width:100%; padding:12px; }
-.auth-card p { line-height:1.6; }
-.google-login { display:block; text-align:center; border:1px solid var(--border,#dbe5e0); border-radius:9px; padding:12px; margin:12px 0; }
-.account-bar { display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:12px; padding:12px 24px; border-bottom:1px solid var(--border,#dbe5e0); background:var(--surface,#fff); }
-.account-bar span { overflow-wrap:anywhere; }
-.account-bar b { font-size:13px; }
-.account-notice { margin:12px 24px; }
-.admin-shell { max-width:1100px; margin:auto; padding:32px 24px; }
-.admin-users { display:grid; gap:16px; }
-.admin-user { display:flex; justify-content:space-between; align-items:center; gap:20px; padding:24px; background:var(--surface,#fff); border:1px solid var(--border,#dbe5e0); border-radius:14px; }
-.admin-user h3 { overflow-wrap:anywhere; }
-.admin-user input[type=number] { width:90px; }
-.admin-user form { margin-bottom:12px; }
-@media(max-width:600px){.account-bar{justify-content:flex-start;padding:12px;font-size:12px;gap:8px;}.auth-card{padding:24px;}.admin-user{display:block;padding:18px;}.admin-user>div+div{margin-top:16px;}}
+.auth-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--bg);
+}
+.auth-card {
+  width: min(100%, 480px);
+  background: var(--surface, #fff);
+  border: 1px solid var(--border, #dbe5e0);
+  border-radius: 20px;
+  padding: 32px;
+  box-shadow: 0 16px 60px #163b2710;
+}
+.auth-card h1 {
+  margin: 12px 0;
+  font-size: 30px;
+}
+.auth-card form {
+  display: grid;
+  gap: 18px;
+  margin: 24px 0;
+}
+.auth-card label {
+  display: grid;
+  gap: 8px;
+}
+.auth-card input:not([type='checkbox']):not([type='radio']) {
+  margin: 0;
+  width: 100%;
+  padding: 12px;
+}
+.auth-card p {
+  line-height: 1.6;
+}
+.google-login {
+  display: block;
+  text-align: center;
+  border: 1px solid var(--border, #dbe5e0);
+  border-radius: 9px;
+  padding: 12px;
+  margin: 12px 0;
+}
+.account-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--border, #dbe5e0);
+  background: var(--surface, #fff);
+}
+.account-bar span {
+  overflow-wrap: anywhere;
+}
+.account-bar b {
+  font-size: 13px;
+}
+.account-notice {
+  margin: 12px 24px;
+}
+.admin-shell {
+  max-width: 1100px;
+  margin: auto;
+  padding: 32px 24px;
+}
+.admin-users {
+  display: grid;
+  gap: 16px;
+}
+.admin-user {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  padding: 24px;
+  background: var(--surface, #fff);
+  border: 1px solid var(--border, #dbe5e0);
+  border-radius: 14px;
+}
+.admin-user h3 {
+  overflow-wrap: anywhere;
+}
+.admin-user input[type='number'] {
+  width: 90px;
+}
+.admin-user form {
+  margin-bottom: 12px;
+}
+@media (max-width: 600px) {
+  .account-bar {
+    justify-content: flex-start;
+    padding: 12px;
+    font-size: 12px;
+    gap: 8px;
+  }
+  .auth-card {
+    padding: 24px;
+  }
+  .admin-user {
+    display: block;
+    padding: 18px;
+  }
+  .admin-user > div + div {
+    margin-top: 16px;
+  }
+}
+
+/* Clear, consistent account forms on all screen sizes. */
+.auth-shell {
+  min-height: 100svh;
+}
+.login-shell {
+  background: radial-gradient(ellipse at 50% 0%, var(--green-soft), transparent 65%), var(--bg);
+  padding: 40px 24px;
+}
+.login-layout {
+  width: min(100%, 460px);
+  min-width: 0;
+}
+.auth-back {
+  border: 0;
+  background: transparent;
+  padding: 8px 0;
+  margin-bottom: 20px;
+  color: var(--muted);
+  font-weight: 500;
+  font-size: 14px;
+}
+.auth-back:hover:not(:disabled) {
+  background: transparent;
+  color: var(--green);
+}
+.login-card {
+  width: 100%;
+  padding: 36px;
+  border-radius: 24px;
+  box-shadow: var(--shadow);
+}
+.auth-brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 26px;
+  font-family: Manrope, Arial, sans-serif;
+  font-weight: 800;
+  font-size: 22px;
+  letter-spacing: -0.7px;
+}
+.auth-brand-icon {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  background: var(--green-soft);
+  color: var(--green);
+  border-radius: 14px;
+}
+.login-card h1 {
+  text-align: center;
+  font-size: 28px;
+  letter-spacing: -0.8px;
+  line-height: 1.25;
+  margin: 0 0 12px;
+}
+.auth-intro {
+  text-align: center;
+  font-size: 14px;
+  margin-bottom: 26px;
+}
+.login-card .google-login {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 48px;
+  padding: 12px 16px;
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+.login-card .google-login:hover {
+  background: var(--green-soft);
+  border-color: var(--green);
+}
+.google-letter {
+  font-family: Arial, sans-serif;
+  font-size: 21px;
+  font-weight: 700;
+  color: #4285f4;
+}
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  color: var(--muted);
+  margin: 22px 0;
+  font-size: 12px;
+}
+.auth-divider::before,
+.auth-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+.login-card form {
+  margin: 0;
+  gap: 18px;
+}
+.auth-card label {
+  font-size: 14px;
+  font-weight: 600;
+}
+.auth-card input:not([type='checkbox']):not([type='radio']) {
+  margin: 0;
+  min-height: 48px;
+  font-size: 16px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  min-width: 0;
+}
+.auth-card input::placeholder {
+  color: var(--muted);
+  font-weight: 400;
+}
+.auth-card label small {
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 12px;
+}
+.auth-card .primary {
+  min-height: 48px;
+  border-radius: 12px;
+  font-size: 15px;
+}
+.auth-card .error,
+.auth-card .notice {
+  font-size: 13px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  overflow-wrap: anywhere;
+  margin: 0;
+}
+.login-card .auth-message {
+  margin-bottom: 20px;
+}
+.auth-card .auth-signup {
+  text-align: center;
+  font-size: 13px;
+  margin: 22px 0 0;
+}
+.auth-signup a {
+  color: var(--green);
+  font-weight: 650;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.auth-benefit {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+  text-align: center;
+  display: grid;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.auth-benefit strong {
+  font-size: 13px;
+  color: var(--text);
+  font-weight: 600;
+}
+.auth-privacy {
+  display: block;
+  text-align: center;
+  margin-top: 22px;
+  font-size: 12px;
+  color: var(--muted);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.login-card .button-row {
+  margin-top: 20px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+@media (max-width: 520px) {
+  .login-shell {
+    padding: 20px 16px 28px;
+    place-items: start center;
+  }
+  .auth-back {
+    margin-bottom: 14px;
+    font-size: 13px;
+  }
+  .login-card {
+    padding: 26px 22px;
+    border-radius: 20px;
+  }
+  .auth-brand {
+    margin-bottom: 22px;
+  }
+  .login-card h1 {
+    font-size: 26px;
+  }
+  .auth-intro {
+    margin-bottom: 22px;
+  }
+  .auth-privacy {
+    margin-top: 18px;
+  }
+}

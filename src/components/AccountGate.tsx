@@ -3,6 +3,7 @@
 /* eslint-disable @next/next/no-location-assign-relative-destination */
 import { useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
+import { BookOpen, ArrowLeft } from 'lucide-react';
 import type { Account } from '@/lib/account-server';
 import { setStorageAccount } from '@/lib/storage';
 const Workspace = dynamic(() => import('./Workspace'));
@@ -154,122 +155,147 @@ export default function AccountGate() {
     );
   if (!user)
     return (
-      <main className="auth-shell">
-        <section className="auth-card">
+      <main className="auth-shell login-shell">
+        <div className="login-layout">
           <button
+            className="auth-back"
             type="button"
             onClick={() => {
               setShowLogin(false);
               setMessage('');
             }}
           >
-            ← Înapoi la pagina principală
+            <ArrowLeft size={17} aria-hidden="true" /> Înapoi la pagina principală
           </button>
-          <a href="/privacy">Cum sunt folosite datele tale</a>
-          <span className="eyebrow">AIQUIZ · SPAȚIUL TĂU DE ÎNVĂȚARE</span>
-          <h1>
-            {mode === 'signup'
-              ? 'Creează un cont'
-              : mode === 'recover'
-                ? 'Recuperează accesul'
-                : 'Bine ai revenit'}
-          </h1>
-          <p>
-            Documentele și quiz-urile tale, într-un cont privat. Primești două pregătiri gratuite de
-            documente.
-          </p>
-          <form
-            onSubmit={async (e) => {
-              e.preventDefault();
-              setBusy(true);
-              setError('');
-              setMessage('');
-              const f = new FormData(e.currentTarget);
-              try {
-                const result = await authAction({
-                  action: mode,
-                  email: f.get('email'),
-                  password: mode === 'recover' ? undefined : f.get('password'),
-                });
-                if (result.message) setMessage(result.message);
-                else location.assign('/');
-              } catch (e) {
-                setError((e as Error).message);
-              } finally {
-                setBusy(false);
-              }
-            }}
-          >
-            <label>
-              Email
-              <input name="email" type="email" autoComplete="email" maxLength={254} required />
-            </label>
-            {mode !== 'recover' && (
-              <label>
-                Parolă
-                <input
-                  name="password"
-                  type="password"
-                  autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
-                  minLength={12}
-                  maxLength={128}
-                  required
-                />
-                <small>Minimum 12 caractere.</small>
-              </label>
-            )}
-            {error && (
-              <p className="error" role="alert">
-                {error}
-              </p>
-            )}
+          <section className="auth-card login-card" aria-labelledby="login-title">
+            <div className="auth-brand">
+              <span className="auth-brand-icon">
+                <BookOpen size={23} aria-hidden="true" />
+              </span>
+              <span>AIQuiz</span>
+            </div>
+            <h1 id="login-title">
+              {mode === 'signup'
+                ? 'Creează un cont'
+                : mode === 'recover'
+                  ? 'Recuperează accesul'
+                  : 'Bine ai revenit'}
+            </h1>
+            <p className="auth-intro">
+              {mode === 'recover'
+                ? 'Introdu adresa de email pentru a recupera accesul.'
+                : 'Conectează-te pentru a continua cu documentele și quiz-urile tale.'}
+            </p>
             {message && (
-              <p className="notice" role="status">
+              <p className="notice auth-message" role="status">
                 {message}
               </p>
             )}
-            <button className="primary" disabled={busy}>
-              {busy
-                ? 'Se procesează...'
-                : mode === 'signup'
-                  ? 'Creează cont'
-                  : mode === 'recover'
-                    ? 'Trimite instrucțiunile'
-                    : 'Autentificare'}
-            </button>
-          </form>
-          {google && (
-            <a className="google-login" href="/api/auth/google">
-              Continuă cu Google
-            </a>
-          )}
-          {emailEnabled && (
-            <div className="button-row">
-              <button
-                onClick={() => {
-                  setMode(mode === 'signup' ? 'login' : 'signup');
-                  setError('');
-                  setMessage('');
-                }}
-              >
-                {mode === 'signup' ? 'Am deja cont' : 'Creează un cont'}
-              </button>
+            {google && mode !== 'recover' && (
+              <>
+                <a className="google-login" href="/api/auth/google">
+                  <span className="google-letter" aria-hidden="true">
+                    G
+                  </span>
+                  Continuă cu Google
+                </a>
+                <div className="auth-divider">
+                  <span>sau cu email</span>
+                </div>
+              </>
+            )}
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                setBusy(true);
+                setError('');
+                setMessage('');
+                const f = new FormData(e.currentTarget);
+                try {
+                  const result = await authAction({
+                    action: mode,
+                    email: f.get('email'),
+                    password: mode === 'recover' ? undefined : f.get('password'),
+                  });
+                  if (result.message) setMessage(result.message);
+                  else location.assign('/');
+                } catch (e) {
+                  setError((e as Error).message);
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              <label>
+                Email
+                <input
+                  name="email"
+                  placeholder="nume@exemplu.ro"
+                  type="email"
+                  autoComplete="email"
+                  maxLength={254}
+                  required
+                />
+              </label>
               {mode !== 'recover' && (
-                <button onClick={() => setMode('recover')}>Am uitat parola</button>
+                <label>
+                  Parolă
+                  <input
+                    name="password"
+                    type="password"
+                    autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
+                    minLength={12}
+                    maxLength={128}
+                    required
+                  />
+                  {mode === 'signup' && <small>Minimum 12 caractere.</small>}
+                </label>
               )}
+              {error && (
+                <p className="error" role="alert">
+                  {error}
+                </p>
+              )}
+              <button className="primary" disabled={busy}>
+                {busy
+                  ? 'Se procesează...'
+                  : mode === 'signup'
+                    ? 'Creează cont'
+                    : mode === 'recover'
+                      ? 'Trimite instrucțiunile'
+                      : 'Autentificare'}
+              </button>
+            </form>
+            {emailEnabled && (
+              <div className="button-row">
+                <button
+                  onClick={() => {
+                    setMode(mode === 'signup' ? 'login' : 'signup');
+                    setError('');
+                    setMessage('');
+                  }}
+                >
+                  {mode === 'signup' ? 'Am deja cont' : 'Creează un cont'}
+                </button>
+                {mode !== 'recover' && (
+                  <button onClick={() => setMode('recover')}>Am uitat parola</button>
+                )}
+              </div>
+            )}
+            {!emailEnabled && google && (
+              <p className="auth-signup">
+                Nu ai cont? <a href="/api/auth/google">Creează unul cu Google</a>
+              </p>
+            )}
+            <div className="auth-benefit">
+              <strong>Primele două documente sunt gratuite.</strong>
+              <span>Quiz-urile din documentele pregătite pot fi reluate fără alte încercări.</span>
             </div>
-          )}
-          {!emailEnabled && google && (
-            <p className="muted">
-              Pentru un cont nou, continuă cu Google. Autentificarea cu parolă este disponibilă
-              pentru conturile existente.
-            </p>
-          )}
-          <p className="muted">
-            O pregătire = un document nou. Reluările automate și quiz-urile din documentele deja
-            pregătite nu consumă alte încercări.
-          </p>
-        </section>
+          </section>
+          <a className="auth-privacy" href="/privacy">
+            Cum sunt folosite datele tale
+          </a>
+        </div>
       </main>
     );
   return (

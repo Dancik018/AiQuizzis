@@ -429,9 +429,6 @@ export default function Workspace({
             <option value="light">Luminos</option>
             <option value="dark">Întunecat</option>
           </select>
-          <span className="privacy-label">
-            <ShieldCheck size={15} /> Progres salvat în cont
-          </span>
         </header>
         <main>
           {error && (
@@ -562,9 +559,6 @@ export default function Workspace({
                   </h1>
                   <p>Transformă documentele în quiz-uri interactive, în limba română.</p>
                 </div>
-                <div className="heading-label">
-                  <Sparkles size={17} /> Învățare asistată de AI
-                </div>
               </div>
               <div className="stats-grid">
                 <div className="stat">
@@ -680,11 +674,7 @@ export default function Workspace({
                   </p>
                 </div>
               )}
-              {services.ai && (
-                <p className="analysis-status">
-                  OpenAI · Procesare paralelă cu salvare după fiecare lot.
-                </p>
-              )}
+
               <div className="section-heading library-heading">
                 <div>
                   <h2>
@@ -935,10 +925,6 @@ export default function Workspace({
                   })}
                 </div>
               )}
-              <footer className="page-footer">
-                <span>AIQuiz · Învață în ritmul tău.</span>
-                <span>Română · Cont securizat · Progres salvat</span>
-              </footer>
             </>
           )}
         </main>
