@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './browser-fixture';
 import { docxFixture, pdfFixture, fixtureLines } from './fixtures';
 
 for (const format of ['pdf', 'docx'] as const) {

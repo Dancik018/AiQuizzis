@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './browser-fixture';
 import { docxFixture } from './fixtures';
 
 test('multiple correct answers use independent selections and set-based grading', async ({

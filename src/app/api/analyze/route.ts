@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { account, requireDocument } from '@/lib/account-server';
 import { body, apiError } from '@/lib/api';
 import { structuredAI } from '@/lib/structured-ai';
 export const runtime = 'nodejs';
@@ -16,15 +17,23 @@ const schema = z.object({
 });
 export async function POST(req: Request) {
   try {
+    const context = await account(req);
     const data = await body(
       req,
       z.object({
+        documentId: z.string().min(1).max(100),
         lines: z
           .array(z.object({ text: z.string().max(12000), page: z.number().int().positive() }))
           .min(1)
           .max(80),
       }),
       70000,
+    );
+    await requireDocument(
+      req,
+      data.documentId,
+      Math.max(1, Math.ceil(data.lines.length / 10)),
+      context,
     );
     const result = await structuredAI(
       schema,

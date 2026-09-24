@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page } from './browser-fixture';
 import { PDFDocument } from 'pdf-lib';
 
 async function scannedPdf(page: Page) {

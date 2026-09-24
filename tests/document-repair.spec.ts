@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './browser-fixture';
 import { detectQuestions } from '../src/lib/detection';
 
 test('saved merged translations repair on reload, with a clear notice and image filter', async ({

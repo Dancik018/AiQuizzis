@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { ArrowLeft, ArrowRight, Flag, Check, X, RotateCcw, Trophy } from 'lucide-react';
 import { exactAnswer, results } from '@/lib/quiz';
 import { ready, type Answer, type Question, type QuizSession, type DocumentSet } from '@/lib/model';
+import { accountFetch } from '@/lib/storage';
 import PreparationStatus from './PreparationStatus';
 
 export default function QuizPlayer({
@@ -55,10 +56,12 @@ export default function QuizPlayer({
     };
     if (q.type === 'open' && next.correct === null) {
       try {
-        const response = await fetch('/api/evaluate', {
+        const response = await accountFetch('/api/evaluate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            documentId: q.documentId,
+            questionId: q.id,
             question: q.question,
             expected: q.correctAnswer,
             answer: answer.value,

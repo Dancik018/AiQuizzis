@@ -230,6 +230,12 @@ export async function runSolverQueue(
         'AI_CONFIG',
         'AI_KEY_FORMAT',
         'CLIENT_OUTDATED',
+        'AUTH_REQUIRED',
+        'ACCOUNT_BLOCKED',
+        'PASSWORD_CHANGE_REQUIRED',
+        'DOCUMENT_AI_LIMIT',
+        'DOCUMENT_NOT_FOUND',
+        'NO_CREDITS',
       ].includes(code)
     ) {
       disabled.add(job.provider);

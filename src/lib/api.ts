@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { accountFailure } from './account-errors';
 import { positiveInt } from './server-config';
 // Best-effort per-instance protection; configure Vercel Firewall rate limits for distributed enforcement.
 const requests = new Map<string, { count: number; reset: number }>();
@@ -40,6 +41,8 @@ export async function body<T>(req: Request, schema: z.ZodType<T>, max = 150000):
   return schema.parse(JSON.parse(new TextDecoder().decode(bytes)));
 }
 export function apiError(error: unknown) {
+  const authentication = accountFailure(error);
+  if (authentication) return authentication;
   const code = error instanceof Error ? error.message : '';
   const status = typeof error === 'object' && error && 'status' in error ? Number(error.status) : 0;
   const upstreamCode =

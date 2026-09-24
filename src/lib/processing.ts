@@ -6,7 +6,7 @@ import {
   type Question,
   type SolvedQuestions,
 } from './model';
-import { putDocument } from './storage';
+import { putDocument, accountFetch } from './storage';
 import { sanitizeQuestion } from './question-safety';
 import { BatchError, runSolverQueue } from './solver-queue';
 import { defaultProfile, type SolverProfile } from './batching';
@@ -34,7 +34,7 @@ export async function solveQuestions(
       cached.filter((q): q is Question => Boolean(q)),
       { cacheHits: cached.length },
     );
-  const response = await fetch('/api/solve', {
+  const response = await accountFetch('/api/solve', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ questions: pending, generateOptions, provider: selected, strong }),
@@ -139,10 +139,10 @@ export async function analyzeStructure(
       size += current.lines[i].text.length;
     }
     try {
-      const response = await fetch('/api/analyze', {
+      const response = await accountFetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lines }),
+        body: JSON.stringify({ documentId: doc.id, lines }),
         signal: AbortSignal.timeout(65000),
       });
       const result = await response.json();

@@ -1,0 +1,141 @@
+'use client';
+import { useEffect, useState, useCallback } from 'react';
+import type { Account } from '@/lib/account-server';
+import { accountFetch } from '@/lib/storage';
+export default function AdminPanel() {
+  const [users, setUsers] = useState<Account[]>([]),
+    [page, setPage] = useState(0),
+    [search, setSearch] = useState(''),
+    [query, setQuery] = useState(''),
+    [total, setTotal] = useState(0),
+    [error, setError] = useState(''),
+    [busy, setBusy] = useState(false),
+    [notice, setNotice] = useState('');
+  const load = useCallback(async () => {
+    const r = await accountFetch(`/api/admin?page=${page}&search=${encodeURIComponent(query)}`);
+    const v = await r.json();
+    if (!r.ok) throw new Error(v.error);
+    setUsers(v.users);
+    setTotal(v.total);
+  }, [page, query]);
+  useEffect(() => {
+    void load().catch((e) => setError(e.message));
+  }, [load]);
+  const change = async (data: unknown) => {
+    setBusy(true);
+    setError('');
+    setNotice('');
+    try {
+      const r = await accountFetch('/api/admin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      const v = await r.json();
+      if (!r.ok) throw new Error(v.error);
+      await load();
+      setNotice('Modificarea a fost salvată.');
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <main className="admin-shell">
+      <div className="page-heading">
+        <div>
+          <span className="eyebrow">ADMINISTRARE</span>
+          <h1>Utilizatori și generări</h1>
+          <p>Fiecare utilizator nou primește două generări. Quiz-urile sale rămân private.</p>
+        </div>
+      </div>
+      <form
+        className="toolbar"
+        onSubmit={(e) => {
+          e.preventDefault();
+          setPage(0);
+          setQuery(search);
+        }}
+      >
+        <input
+          aria-label="Caută utilizator după email"
+          placeholder="Caută după email"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <button>Caută</button>
+      </form>
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+      {notice && (
+        <p className="notice" role="status">
+          {notice}
+        </p>
+      )}
+      <p>{total} conturi</p>
+      <div className="admin-users">
+        {users.map((u) => (
+          <article key={u.id} className="admin-user">
+            <div>
+              <h3>{u.email}</h3>
+              <p>
+                {u.is_admin ? 'Administrator · nelimitat' : `${u.credits} generări disponibile`}
+                {u.disabled ? ' · Suspendat' : ''}
+              </p>
+              <small>Creat la {new Date(u.created_at).toLocaleDateString('ro-RO')}</small>
+            </div>
+            {!u.is_admin && (
+              <div>
+                <form
+                  className="button-row"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void change({
+                      id: u.id,
+                      credits: Number(new FormData(e.currentTarget).get('credits')),
+                    });
+                  }}
+                >
+                  <input
+                    aria-label={`Generări suplimentare pentru ${u.email}`}
+                    name="credits"
+                    type="number"
+                    min={1}
+                    max={1000}
+                    defaultValue={2}
+                    required
+                  />
+                  <button disabled={busy}>Adaugă generări</button>
+                </form>
+                <button
+                  disabled={busy}
+                  onClick={() => {
+                    if (confirm(`${u.disabled ? 'Reactivezi' : 'Suspendi'} contul ${u.email}?`))
+                      void change({ id: u.id, disabled: !u.disabled });
+                  }}
+                >
+                  {u.disabled ? 'Reactivează contul' : 'Suspendă contul'}
+                </button>
+              </div>
+            )}
+          </article>
+        ))}
+      </div>
+      <div className="pagination">
+        <button disabled={page === 0 || busy} onClick={() => setPage((p) => p - 1)}>
+          Înapoi
+        </button>
+        <span>
+          Pagina {page + 1} / {Math.max(1, Math.ceil(total / 25))}
+        </span>
+        <button disabled={(page + 1) * 25 >= total || busy} onClick={() => setPage((p) => p + 1)}>
+          Următoarea
+        </button>
+      </div>
+    </main>
+  );
+}

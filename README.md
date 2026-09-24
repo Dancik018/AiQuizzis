@@ -1,6 +1,6 @@
 # AIQuiz
 
-Romanian-first, anonymous PDF/DOCX quizzes in one Next.js application. Existing repository: Dancik018/AiQuizzis. Production: https://ai-quizzis.vercel.app. GitHub main deploys to the existing Vercel project.
+Romanian-first, account-protected PDF/DOCX quizzes in one Next.js application. Existing repository: Dancik018/AiQuizzis. Production: https://ai-quizzis.vercel.app. GitHub main deploys to the existing Vercel project.
 
 ## Features and architecture
 
@@ -8,10 +8,10 @@ Romanian-first, anonymous PDF/DOCX quizzes in one Next.js application. Existing 
 - Free browser Tesseract OCR recognizes scanned PDF pages in Romanian/English. Files and scanned images stay in the browser; only question batches go to AI.
 - Token-aware batches default to at most 50 questions. The first buffer defaults to 20. A rolling pool starts up to five OpenAI requests; a freed slot immediately takes the next batch.
 - A quiz reserves the complete selected question order, including pending questions. Start playing after the initial ready buffer while preparation continues. Shuffled session order drives queue priority. Pending questions display a waiting state and become playable automatically.
-- Quiz answers, position, question/option order, queue and prepared results persist in IndexedDB. Refresh restores an active quiz and restarts unfinished processing. Keep the tab open; a closed/suspended browser is not a permanent background worker.
+- Quiz answers, position, question/option order, queue and prepared results persist in private Supabase rows. Refresh restores an active quiz and restarts unfinished processing. Keep the tab open; a closed/suspended browser is not a permanent background worker.
 - Each successful response saves immediately. Partial output saves valid IDs and retries only missing/invalid IDs. Transient failures retry with 1/2/4-second backoff, then splitting. One isolated bad question is flagged for manual review. OpenAI quota exhaustion pauses with work saved.
 - Open questions receive four options in the same solving request by default (toggle off for manual-answer practice). Existing options are never regenerated. Review includes immediate-save individual option generation and bulk generation for missing options only.
-- Practice/exam, quick quiz, multi-document selection, editing, paginated review, results, retry mistakes, history, flags/skips, themes and responsive layout remain supported. No account required.
+- Practice/exam, quick quiz, multi-document selection, editing, paginated review, results, retry mistakes, history, flags/skips, themes and responsive layout remain supported. A verified account is required for uploads, quizzes and AI endpoints.
 
 ## Installation and local development
 
@@ -52,9 +52,9 @@ Verified official documentation on 21 September 2026: [gpt-5.6-luna](https://dev
 
 ## Cache, metrics and cost
 
-An independent IndexedDB answer cache preserves the existing document/session database unchanged and avoids blocking older open tabs on an upgrade. SHA-256 covers exact question text, options, generation mode, provider/model and cache version. Only validated ready results are reused, preserving the new document's IDs/source. Nothing private is put in a shared server cache.
+A per-account IndexedDB answer cache avoids repeated AI work. Documents and sessions are stored in Supabase, protected by row-level security and optimistic versions. SHA-256 covers exact question text, options, generation mode, provider/model and cache version. Only validated ready results are reused, preserving the new document's IDs/source. Nothing private is put in a shared server cache.
 
-Quiz preparation diagnostics show extraction time, ready/total, requests, questions/request, batch latency, elapsed/wait times, retries, 429 count, questions/minute, first-buffer time, and moving-average ETA from the last five successful completions. Each batch's model, IDs, token usage and duration are saved locally. Server logs contain usage metadata, never prompts or keys. Cost estimates use one registry in `src/lib/pricing.ts`; unknown models have no estimate. Estimates exclude cache discounts, special long-context pricing and provider-specific billing adjustments.
+Quiz preparation diagnostics show extraction time, ready/total, requests, questions/request, batch latency, elapsed/wait times, retries, 429 count, questions/minute, first-buffer time, and moving-average ETA from the last five successful completions. Each batch's model, IDs, token usage and duration are saved with the private document. Server logs contain usage metadata, never prompts or keys. Cost estimates use one registry in `src/lib/pricing.ts`; unknown models have no estimate. Estimates exclude cache discounts, special long-context pricing and provider-specific billing adjustments.
 
 ## Build, test and deploy
 
@@ -135,3 +135,19 @@ Independent choice verification also uses the compact schema for existing single
 A real OpenAI end-to-end run on that 218-page medical PDF completed all queued work in 426.6 seconds: 132 HTTP-successful batches, zero invalid-request questions. Of 591 candidates, the final safety classification retained 476 ready questions, excluded 33 foreign-language candidates and 51 figure-dependent questions, and left 31 for manual review. Two of the figure references were identified from this run and added to the arrow/highlighted-structure guard. This is a processing/recovery benchmark, not independent medical validation of every AI answer or a guarantee of latency. Source images are still not attached automatically.
 
 New quizzes exclude exhausted/failed questions; existing saved quiz order is preserved. A completed document therefore starts a playable quiz from ready answers instead of reserving unresolved items indefinitely. Paused preparation no longer displays a misleading countdown.
+
+## Accounts, database and administrator
+
+Apply the SQL files in `supabase/migrations` in filename order to the existing Supabase project. Set `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `APP_URL` in Vercel Production. The deployed app does **not** need a service-role key. Only the public project key is used with verified user sessions; database RLS remains authoritative.
+
+Each verified new user receives two document preparations. One credit is consumed atomically when a new extracted document is first saved, before AI processing. Retries, edits and quizzes from existing documents do not consume another credit. A failed AI request retains the saved document and credit allocation; deleting a document does not refund a credit. Each document also has a finite AI work allowance to prevent unlimited requests using a reused identifier. The administrator has unlimited credits and can grant up to 1000 credits per action, suspend/reactivate ordinary accounts, and search a paginated user list. Admin cannot view another user's private documents through the application.
+
+`ursud09@gmail.com` is reserved for the administrator. Bootstrap once with `node scripts/bootstrap-admin.mjs`, supplying `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` and `ADMIN_INITIAL_PASSWORD` through private process environment variables. Never commit these values or put the service key in Vercel. The initial password must be changed at first login; both API and SQL block workspace/admin actions until its stored hash changes. Public signup and user-editable metadata cannot create administrators.
+
+For Google OAuth, configure a Web client with redirect URI `https://jmpgcyuesbznaxdqxmul.supabase.co/auth/v1/callback`, save its ID and secret in Supabase Authentication → Providers → Google, then set `GOOGLE_AUTH_ENABLED=true`. Configure Supabase Site URL as `https://ai-quizzis.vercel.app` and allow `https://ai-quizzis.vercel.app/auth/callback`. Google credentials stay in Supabase, never in client code. Only basic identity/email scopes are needed.
+
+Email/password login remains available for existing accounts. Public email signup and password recovery require custom SMTP; leave `EMAIL_AUTH_ENABLED=false` until delivery is configured and tested. Keep email verification enabled. Google signup does not depend on SMTP.
+
+Historical anonymous IndexedDB data is not erased or silently assigned to the next person who logs in. The account workspace loads only authenticated cloud data. Existing browser-only documents require an explicit future migration or a fresh upload; shared-browser caches are never merged between accounts. Cloud writes require connectivity and report conflicts instead of overwriting another device's newer version.
+
+Security tests include actual PostgreSQL execution via PGlite (RLS, concurrent credit consumption, ownership, administrator protection), unauthenticated route checks, and browser regression tests. Browser regression fixtures emulate an authenticated account only inside tests; production has no bypass.

@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './browser-fixture';
 import { docxFixture, pdfFixture, numberedDocxFixture } from './fixtures';
 
 test('real DOCX extraction: 450 questions, review, existing-file quiz, exam, refresh, results and retry', async ({
@@ -63,14 +63,14 @@ test('browser OCR availability and invalid requests return safe Romanian errors'
   request,
 }) => {
   const invalid = await request.post('/api/solve', { data: { questions: [] } });
-  expect(invalid.status()).toBe(400);
+  expect(invalid.status()).toBe(401);
   const config = await request.get('/api/config');
   expect(await config.json()).toMatchObject({ ocr: true, ocrProvider: 'browser' });
   const foreign = await request.post('/api/evaluate', {
     headers: { origin: 'https://attacker.example' },
     data: { question: 'Test', expected: 'Test', answer: 'Test' },
   });
-  expect(foreign.status()).toBe(403);
+  expect(foreign.status()).toBe(401);
 });
 
 test('mobile interface fits viewport and supports dark theme on desktop', async ({ page }) => {
