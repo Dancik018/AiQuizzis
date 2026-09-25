@@ -12,10 +12,19 @@ export default defineConfig({
     trace: 'retain-on-failure',
   },
   webServer: {
-    env: { OPENAI_API_KEY: '' },
+    // Deliberately non-production values: no live credentials or Supabase requests
+    // are needed to reject requests that have no authenticated session.
+    env: {
+      OPENAI_API_KEY: '',
+      SUPABASE_URL: 'https://aiquiz-test.invalid',
+      SUPABASE_PUBLISHABLE_KEY: 'test-only-not-a-real-key',
+      GOOGLE_AUTH_ENABLED: 'true',
+      APP_URL: 'http://localhost:3000',
+      EMAIL_AUTH_ENABLED: 'false',
+    },
     command: 'npm start',
     url: 'http://localhost:3000',
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: false,
     timeout: 120000,
   },
 });

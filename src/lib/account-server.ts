@@ -59,7 +59,7 @@ export function checkDatabase(error: { message: string } | null) {
 }
 export const privateJSON = (value: unknown) =>
   Response.json(value, { headers: { 'Cache-Control': 'private, no-store' } });
-export const appURL = () => process.env.APP_URL || 'https://ai-quizzis.vercel.app';
+export const appURL = () => (process.env.APP_URL || 'https://aiquizzis.online').replace(/\/+$/, '');
 export async function requireDocument(
   req: Request,
   id: string,

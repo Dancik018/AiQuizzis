@@ -1,6 +1,6 @@
 # AIQuiz
 
-Romanian-first, account-protected PDF/DOCX quizzes in one Next.js application. Existing repository: Dancik018/AiQuizzis. Production: https://ai-quizzis.vercel.app. GitHub main deploys to the existing Vercel project.
+Romanian-first, account-protected PDF/DOCX quizzes in one Next.js application. Existing repository: Dancik018/AiQuizzis. Production: https://aiquizzis.online. GitHub main deploys to the existing Vercel project.
 
 ## Features and architecture
 
@@ -144,7 +144,7 @@ Each verified new user receives two document preparations. One credit is consume
 
 `ursud09@gmail.com` is reserved for the administrator. Bootstrap once with `node scripts/bootstrap-admin.mjs`, supplying `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` and `ADMIN_INITIAL_PASSWORD` through private process environment variables. Never commit these values or put the service key in Vercel. The initial password must be changed at first login; both API and SQL block workspace/admin actions until its stored hash changes. Public signup and user-editable metadata cannot create administrators.
 
-For Google OAuth, configure a Web client with redirect URI `https://jmpgcyuesbznaxdqxmul.supabase.co/auth/v1/callback`, save its ID and secret in Supabase Authentication → Providers → Google, then set `GOOGLE_AUTH_ENABLED=true`. Configure Supabase Site URL as `https://ai-quizzis.vercel.app` and allow `https://ai-quizzis.vercel.app/auth/callback`. Google credentials stay in Supabase, never in client code. Only basic identity/email scopes are needed.
+For Google OAuth, configure a Web client with redirect URI `https://jmpgcyuesbznaxdqxmul.supabase.co/auth/v1/callback`, save its ID and secret in Supabase Authentication → Providers → Google, then set `GOOGLE_AUTH_ENABLED=true`. Configure Supabase Site URL as `https://aiquizzis.online` and allow `https://aiquizzis.online/auth/callback`. Google credentials stay in Supabase, never in client code. Only basic identity/email scopes are needed.
 
 Email/password login remains available for existing accounts. Public email signup and password recovery require custom SMTP; leave `EMAIL_AUTH_ENABLED=false` until delivery is configured and tested. Keep email verification enabled. Google signup does not depend on SMTP.
 
