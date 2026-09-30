@@ -1,0 +1,32 @@
+export const botCommands = [
+  { command: 'start', description: 'Bun venit și meniul principal' },
+  { command: 'info', description: 'Descoperă AiQuizzis' },
+  { command: 'price', description: 'Prețuri și încercări suplimentare' },
+  { command: 'web', description: 'Deschide aiquizzis.online' },
+  { command: 'link', description: 'Link direct către site' },
+  { command: 'help', description: 'Cum folosești botul' },
+];
+const info =
+  '📚 Învață activ cu AiQuizzis! Transformă documentele PDF și Word în quiz-uri interactive în limba română. Exersează, descoperă ce mai ai de repetat și urmărește-ți progresul.\n\n🌐 https://aiquizzis.online';
+const price =
+  '🎟 Încercări AiQuizzis\n\nUn cont nou primește 2 încercări gratuite. O încercare pregătește un document nou; poți relua quiz-urile din documentele deja pregătite fără alte încercări.\n\nPrețurile și modalitatea de cumpărare vor fi anunțate aici în curând. Momentan botul nu preia comenzi sau plăți și nu acordă încercări.';
+export function telegramReply(text: string) {
+  const command = text.trim().split(/\s+/)[0].split('@')[0].toLowerCase();
+  if (command === '/info') return info;
+  if (command === '/price' || /preț|pret|cump|procur|încerc|incerc|cost|tarif/i.test(text))
+    return price;
+  if (command === '/web' || command === '/link')
+    return '🌐 Deschide AiQuizzis: https://aiquizzis.online\nConectează-te și transformă documentele tale în quiz-uri!';
+  if (command === '/start')
+    return (
+      '👋 Bun venit la AiQuizzis!\n\n' +
+      info +
+      '\n\nAflă despre încercări cu /price sau vezi toate comenzile cu /help.'
+    );
+  if (command === '/help')
+    return (
+      botCommands.map((c) => `/${c.command} — ${c.description}`).join('\n') +
+      '\n\nBotul oferă momentan informații automate. Nu trimite parole, date bancare sau documente personale.'
+    );
+  return '👋 Te pot ajuta cu informații despre AiQuizzis și încercări.\n\n/info — Despre platformă\n/price — Încercări și prețuri\n/web — Deschide site-ul\n/help — Toate comenzile\n\nAsistența pentru cumpărare va fi disponibilă în curând.';
+}
