@@ -33,7 +33,7 @@ await api('setChatMenuButton', { menu_button: { type: 'commands' } });
 await api('setWebhook', {
   url: 'https://aiquizzis.online/api/telegram',
   secret_token: secret,
-  allowed_updates: ['message'],
+  allowed_updates: ['message', 'callback_query'],
   max_connections: 5,
 });
 const info = await api('getWebhookInfo');
