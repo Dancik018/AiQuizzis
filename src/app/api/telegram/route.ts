@@ -39,7 +39,7 @@ const choices = {
   ]),
 };
 const prompt = (pack: string) =>
-  `Pachet: ${pack} încercări — ${packages[pack]} lei.\n\nRăspunde la acest mesaj cu adresa Gmail/email cu care te-ai conectat pe aiquizzis.online. Emailul, pachetul și contactul tău Telegram vor fi trimise administratorului în grupul de comenzi. Cererea nu confirmă plata.\n\nPentru a renunța, nu trimite emailul. /buy — alege alt pachet.`;
+  `Pachet: ${pack} încercări — ${packages[pack]} lei.\n\nRăspunde la acest mesaj cu adresa Gmail/email cu care te-ai conectat pe aiquizzis.online. Cererea ta va ajunge la administrare. Cererea nu confirmă plata.\n\nPentru a renunța, nu trimite emailul. /buy — alege alt pachet.`;
 const completed = new Map<number, number>();
 async function telegram(method: string, data: unknown) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -131,7 +131,7 @@ export async function POST(req: Request) {
         configured ? choices : menu,
       );
     if (command === '/groupid')
-      return reply(message.chat.id, 'Adaugă botul în grupul tău și scrie acolo /groupid.');
+      return reply(message.chat.id, 'Această comandă este destinată administrării.');
     const original = message.reply_to_message;
     if (!command.startsWith('/') && original?.text?.startsWith('Pachet: ')) {
       if (!configured) return reply(message.chat.id, unavailable);
@@ -163,7 +163,7 @@ export async function POST(req: Request) {
       }
       return reply(
         message.chat.id,
-        `✅ Cererea ${orderId} a fost trimisă administratorului.\n${pack} încercări — ${packages[pack]} lei\nEmail: ${email}\n\nAșteaptă confirmarea și instrucțiunile de plată. Încercările nu au fost încă adăugate.`,
+        `✅ Cererea ${orderId} a fost trimisă la administrare.\n${pack} încercări — ${packages[pack]} lei\nEmail: ${email}\n\nAșteaptă confirmarea și instrucțiunile de plată. Încercările nu au fost încă adăugate.`,
       );
     }
     return reply(message.chat.id, telegramReply(message.text || ''));

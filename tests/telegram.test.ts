@@ -10,7 +10,7 @@ test('Telegram webhook rejects unauthenticated traffic and responds only in priv
       headers: { 'x-telegram-bot-api-secret-token': secret },
       body: JSON.stringify({
         update_id: 1,
-        message: { chat: { id: 123, type: chatType }, text: '/web' },
+        message: { chat: { id: 123, type: chatType }, text: '/link' },
       }),
     });
   try {
@@ -68,7 +68,7 @@ test('purchase selection validates email and forwards only to configured admin g
     await call(answer('user@example.com', 998));
     assert.equal(sent.filter((x) => x.chat_id).length, 0);
     const receipt = await (await call(answer('user@example.com'))).json();
-    assert.match(receipt.text, /trimisă administratorului/);
+    assert.match(receipt.text, /trimisă la administrare/);
     await call(answer('user@example.com'));
     const orders = sent.filter((x) => x.chat_id);
     assert.equal(orders.length, 1);
@@ -84,7 +84,7 @@ test('purchase selection validates email and forwards only to configured admin g
 });
 test('Telegram commands give real site information without inventing purchase availability', () => {
   for (const c of botCommands) assert.ok(telegramReply('/' + c.command).length > 20);
-  assert.match(telegramReply('/web@AiQuizzis_bot'), /https:\/\/aiquizzis.online/);
+  assert.match(telegramReply('/link@AiQuizzis_bot'), /https:\/\/aiquizzis.online/);
   assert.match(telegramReply('Vreau să procur încercări'), /20 încercări — 200 lei/);
   assert.match(telegramReply('/price'), /2 încercări gratuite/);
   assert.match(telegramReply('salut'), /\/help/);
