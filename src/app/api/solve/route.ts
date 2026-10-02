@@ -22,6 +22,7 @@ export async function POST(req: Request) {
     const documentId = data.questions[0].documentId;
     if (data.questions.some((q) => q.documentId !== documentId)) throw new Error('INVALID_DATA');
     const { document } = await requireDocument(req, documentId, data.questions.length, context);
+    if (document.study) throw new Error('INVALID_DATA');
     const ids = new Set(document.questions.map((q: { id: string }) => q.id));
     if (data.questions.some((q) => !ids.has(q.id))) throw new Error('DOCUMENT_NOT_FOUND');
     const selected = data.provider || availableProviders()[0];

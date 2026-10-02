@@ -3,6 +3,14 @@ import { detectAnswerLeakage, invalidAnswer } from './question-safety';
 
 export const questionSchema = z.object({
   id: z.string().min(1).max(100),
+  generationMode: z.literal('study').optional(),
+  studyKind: z
+    .enum(['multiple_choice', 'true_false', 'short_answer', 'definition', 'scenario'])
+    .optional(),
+  difficulty: z.enum(['easy', 'medium', 'hard']).optional(),
+  sourceSection: z.string().max(300).optional(),
+  sourceQuote: z.string().max(4000).optional(),
+  conceptKey: z.string().max(300).optional(),
   documentId: z.string().max(100),
   question: z.string().min(2).max(12000),
   type: z.enum(['multiple_choice', 'multiple', 'open']),
@@ -60,6 +68,7 @@ export type TextLine = {
   numbered?: boolean;
 };
 export type DocumentSet = {
+  study?: import('./study').StudyState;
   id: string;
   name: string;
   createdAt: string;
@@ -105,6 +114,7 @@ export type Answer = {
   explanation?: string;
 };
 export type QuizSession = {
+  studySources?: { documentId: string; name: string; config: import('./study').StudyConfig }[];
   id: string;
   title: string;
   questions: Question[];

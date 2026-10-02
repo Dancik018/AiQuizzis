@@ -29,6 +29,7 @@ export function createQuiz(
       ),
   );
   if (config.shuffleQuestions) available = shuffled(available);
+  if (available.some((q) => q.generationMode === 'study')) available = available.slice(0, 200);
   available = available.slice(0, config.count || available.length);
   if (!available.length)
     throw new Error(
@@ -81,14 +82,26 @@ export function hydrateQuiz(session: QuizSession, questions: Question[]): QuizSe
         : next.options.map((_, j) => j);
     return structuredClone(next);
   });
+  // Exhausted study slots are removed; keep already answered snapshots and their option order.
+  const retained = updated
+    .map((q, i) => ({ q, order: optionOrders[i] }))
+    .filter(
+      ({ q }) => !(q.generationMode === 'study' && q.status === 'failed' && !session.answers[q.id]),
+    );
+  if (retained.length !== updated.length) changed = true;
   if (!changed) return session;
+  const currentId = session.questions[session.current]?.id;
+  const nextCurrent = retained.findIndex(({ q }) => q.id === currentId);
   return {
     ...session,
-    questions: updated,
-    optionOrders,
+    questions: retained.map((v) => v.q),
+    optionOrders: retained.map((v) => v.order),
+    current:
+      nextCurrent >= 0 ? nextCurrent : Math.max(0, Math.min(session.current, retained.length - 1)),
     bufferStarted:
       session.bufferStarted ||
-      updated.filter(ready).length >= Math.min(session.minReady || 20, updated.length),
+      retained.filter(({ q }) => ready(q)).length >=
+        Math.min(session.minReady || 20, retained.length),
   };
 }
 

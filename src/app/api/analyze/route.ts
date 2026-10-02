@@ -29,12 +29,13 @@ export async function POST(req: Request) {
       }),
       70000,
     );
-    await requireDocument(
+    const { document } = await requireDocument(
       req,
       data.documentId,
       Math.max(1, Math.ceil(data.lines.length / 10)),
       context,
     );
+    if (document.study) throw new Error('INVALID_DATA');
     const result = await structuredAI(
       schema,
       'document_questions',

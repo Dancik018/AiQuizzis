@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { account, checkDatabase, privateJSON } from '@/lib/account-server';
 import { body, apiError } from '@/lib/api';
 import { questionSchema } from '@/lib/model';
+import { studyConfigSchema, studyAnalysis } from '@/lib/study';
 const document = z
   .object({
     id: z.string().min(1).max(100),
@@ -55,6 +56,21 @@ export async function POST(req: Request) {
       3500000,
     );
     if (data.kind === 'documents' && data.data.questions.some((q) => q.documentId !== data.data.id))
+      throw new Error('INVALID_DATA');
+    if (data.kind === 'documents' && data.data.study) {
+      const state = z.object({ config: studyConfigSchema }).parse(data.data.study);
+      const capacity = studyAnalysis(data.data.lines, state.config);
+      if (
+        state.config.count > capacity.maximum ||
+        data.data.questions.length > state.config.count ||
+        state.config.pageTo < state.config.pageFrom
+      )
+        throw new Error('INVALID_DATA');
+    }
+    if (
+      data.data.questions.some((q) => q.generationMode === 'study') &&
+      data.data.questions.length > 200
+    )
       throw new Error('INVALID_DATA');
     const result = await db.rpc(data.kind === 'documents' ? 'save_document' : 'save_quiz', {
       payload: data.data,

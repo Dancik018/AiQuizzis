@@ -1732,3 +1732,56 @@ legend {
     margin-top: 18px;
   }
 }
+.study-config fieldset {
+  border: 1px solid var(--border, #456055);
+  border-radius: 12px;
+  padding: 16px;
+  margin: 18px 0;
+}
+.study-config {
+  width: 640px;
+}
+.study-config .notice {
+  display: block;
+  line-height: 1.7;
+}
+.study-config label {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+.study-config input[type='number'],
+.study-config select {
+  width: 100%;
+  min-width: 0;
+  padding: 10px;
+}
+.study-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.study-sections {
+  max-height: 180px;
+  overflow: auto;
+}
+.study-sections label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.study-mode {
+  display: grid;
+  gap: 16px;
+  margin: 24px 0;
+}
+.study-mode button {
+  padding: 20px;
+  white-space: normal;
+  text-align: left;
+}
+@media (max-width: 560px) {
+  .study-grid {
+    grid-template-columns: 1fr;
+  }
+}

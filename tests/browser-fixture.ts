@@ -1,8 +1,9 @@
 import { test as base, expect } from '@playwright/test';
 // Legacy functional UI tests use an authenticated account and an isolated browser-backed
 // cloud transport fixture. Real authorization/RLS is tested separately, without this fixture.
-export const test = base.extend({
-  page: async ({ page }, providePage) => {
+export const test = base.extend<{ documentMode: 'questions' | 'study' }>({
+  documentMode: ['questions', { option: true }],
+  page: async ({ page, documentMode }, providePage) => {
     await page.addInitScript(() => {
       const r = indexedDB.open('aiquiz', 1);
       r.onupgradeneeded = () => {
@@ -81,6 +82,15 @@ export const test = base.extend({
       versions.set(kind + ':' + data?.data?.id, version);
       await r.fulfill({ json: { version, ok: true } });
     });
+    if (documentMode === 'questions')
+      await page.addLocatorHandler(
+        page.getByRole('button', { name: 'Document cu întrebări existente', exact: true }),
+        async () => {
+          await page
+            .getByRole('button', { name: 'Document cu întrebări existente', exact: true })
+            .click();
+        },
+      );
     await providePage(page);
   },
 });

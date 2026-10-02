@@ -10,7 +10,11 @@ export default function PreparationStatus({
 }) {
   const running = documents.some((d) => d.status === 'processing');
   const prepared = questions.filter(ready).length;
-  const samples = documents.flatMap((d) => d.processing?.metrics?.recent || []);
+  const samples = documents.flatMap((d) =>
+    d.study
+      ? [{ count: d.questions.filter(ready).length, ms: d.study.elapsedMs }]
+      : d.processing?.metrics?.recent || [],
+  );
   const count = samples.reduce((sum, s) => sum + s.count, 0);
   const seconds = count
     ? Math.ceil(
@@ -36,7 +40,9 @@ export default function PreparationStatus({
         </p>
         {documents.map((d) => (
           <p key={d.id}>
-            {d.processing?.provider} · {d.processing?.batchSize || 0} întrebări în lot ·{' '}
+            {d.study ? 'Generare din material' : d.processing?.provider} ·{' '}
+            {d.study ? Math.min(20, d.study.queue[0]?.length || 0) : d.processing?.batchSize || 0}{' '}
+            întrebări în lot ·{' '}
             {d.error || (d.status === 'processing' ? 'Pregătire în fundal' : 'Progres salvat')}
           </p>
         ))}

@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { ArrowLeft, Check, Copy, Pencil, Search, Sparkles, Trash2, X } from 'lucide-react';
 import { questionSchema, ready, uid, type DocumentSet, type Question } from '@/lib/model';
+import { studyReady } from '@/lib/study';
 import { solveQuestions } from '@/lib/processing';
 import { sanitizeQuestion, detectAnswerLeakage } from '@/lib/question-safety';
 
@@ -28,6 +29,7 @@ export default function QuestionReview({
   const [busy, setBusy] = useState(false);
   const filtered = doc.questions.filter(
     (q) =>
+      !(q.generationMode === 'study' && q.status === 'failed') &&
       q.question.toLowerCase().includes(search.toLowerCase()) &&
       (filter === 'all' ||
         (filter === 'images' ? q.requiresImage : filter === 'review' ? !ready(q) : ready(q))),
@@ -157,13 +159,17 @@ export default function QuestionReview({
             quiz
           </p>
         </div>
-        <button className="primary" onClick={onQuiz} disabled={!doc.questions.some(ready)}>
+        <button
+          className="primary"
+          onClick={onQuiz}
+          disabled={!doc.questions.some(ready) || !studyReady(doc)}
+        >
           Generează Quiz
         </button>
       </div>
       <div className="toolbar">
         <button
-          disabled={busy || processing || !doc.questions.some((q) => !q.options.length)}
+          disabled={!onBulk || busy || processing || !doc.questions.some((q) => !q.options.length)}
           onClick={async () => {
             setBusy(true);
             try {
@@ -230,6 +236,14 @@ export default function QuestionReview({
                     Consultă diagrama de la pagina {q.page}. Întrebarea este exclusă din quiz până
                     când o reformulezi cu informațiile necesare; AI-ul nu ghicește imaginea.
                   </p>
+                )}
+                {q.sourceQuote && (
+                  <details>
+                    <summary>
+                      Sursa · {q.sourceSection} · pagina {q.page}
+                    </summary>
+                    <blockquote>{q.sourceQuote}</blockquote>
+                  </details>
                 )}
                 {q.solveError && <p className="analysis-status">{q.solveError}</p>}
                 <p>
@@ -426,11 +440,11 @@ export default function QuestionReview({
               </p>
             )}
             <div className="button-row">
-              <button disabled={busy} onClick={() => regenerate(false)}>
+              <button disabled={busy || Boolean(doc.study)} onClick={() => regenerate(false)}>
                 <Sparkles size={16} /> Regenerează răspuns
               </button>
               <button
-                disabled={busy || processing || editing.options.length > 0}
+                disabled={busy || processing || Boolean(doc.study) || editing.options.length > 0}
                 onClick={() => regenerate(true)}
               >
                 {busy ? 'Se generează variantele...' : 'Generează variante'}
@@ -452,7 +466,9 @@ export default function QuestionReview({
                 <Trash2 size={18} />
               </button>
               <button
-                disabled={busy}
+                disabled={
+                  busy || Boolean(doc.study && doc.questions.length >= doc.study.config.count)
+                }
                 onClick={async () => {
                   const q = { ...editing, id: uid() };
                   await onChange({ ...doc, questions: [...doc.questions, q] });

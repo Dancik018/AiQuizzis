@@ -34,6 +34,9 @@ import { getDocuments, getSessions, putDocument, putSession, deleteDocument } fr
 import { detectQuestions, combineQuestions } from '@/lib/detection';
 import { createQuiz, hydrateQuiz, quizCandidate, quizPriority, results } from '@/lib/quiz';
 import { processDocument, analyzeStructure } from '@/lib/processing';
+import StudyConfiguration from './StudyConfiguration';
+import { studyReady, type StudyConfig } from '@/lib/study';
+import { prepareStudy, processStudy } from '@/lib/study-processing';
 import type { ExtractionProgress } from '@/lib/extract';
 import type { SolverProfile } from '@/lib/batching';
 const QuestionReview = dynamic(() => import('@/components/QuestionReview'));
@@ -54,6 +57,8 @@ export default function Workspace({
   accountId: string;
   onRequireAccount?: () => void;
 }) {
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [studyDraft, setStudyDraft] = useState<DocumentSet | null>(null);
   const [documents, setDocuments] = useState<DocumentSet[]>([]);
   const [sessions, setSessions] = useState<QuizSession[]>([]);
   const [view, setView] = useState<'documents' | 'history' | 'review' | 'quiz'>('documents');
@@ -192,17 +197,19 @@ export default function Workspace({
     stop.current = false;
     setError('');
     try {
-      await processDocument(
-        doc,
-        services.batchSize,
-        options,
-        acceptDocument,
-        () => stop.current,
-        services.requestIntervalMs,
-        services.providers,
-        () => quizPriority(sessionsRef.current.find((s) => s.id === activeRef.current)),
-        optionsOnly,
-      );
+      if (doc.study) await processStudy(doc, acceptDocument, () => stop.current);
+      else
+        await processDocument(
+          doc,
+          services.batchSize,
+          options,
+          acceptDocument,
+          () => stop.current,
+          services.requestIntervalMs,
+          services.providers,
+          () => quizPriority(sessionsRef.current.find((s) => s.id === activeRef.current)),
+          optionsOnly,
+        );
     } catch (e) {
       setError(
         e instanceof Error ? e.message : 'Progresul nu a putut fi salvat în cont. Reîncearcă.',
@@ -229,12 +236,17 @@ export default function Workspace({
       setBusy(false);
     }
   };
-  const upload = async (file?: File) => {
+  const upload = async (file?: File, mode?: 'questions' | 'study') => {
     if (!accountId) {
       onRequireAccount?.();
       return;
     }
     if (!file || busy) return;
+    if (!mode) {
+      setPendingFile(file);
+      return;
+    }
+    setPendingFile(null);
     setBusy(true);
     setError('');
     setProgress({ stage: 'Validare document', completed: 0, total: 1 });
@@ -254,6 +266,10 @@ export default function Workspace({
         status: 'extracted',
         extractionMs: Math.round(performance.now() - extractionStarted),
       };
+      if (mode === 'study') {
+        setStudyDraft({ ...doc, questions: [], rejected: 0, duplicates: 0 });
+        return;
+      }
       await updateDocument(doc);
       setSelected([id]);
       if (!doc.questions.length)
@@ -273,10 +289,27 @@ export default function Workspace({
       if (input.current) input.current.value = '';
     }
   };
+  const beginStudy = async (config: StudyConfig) => {
+    if (!studyDraft) return;
+    try {
+      const doc = prepareStudy(studyDraft, config);
+      setBusy(true);
+      await updateDocument(doc);
+      setStudyDraft(null);
+      setSelected([doc.id]);
+      await solve(doc);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Generarea nu a putut începe.');
+    } finally {
+      setBusy(false);
+    }
+  };
   const start = async (questions: Question[], cfg = defaultConfig) => {
     try {
       const latest = new Map(documents.flatMap((d) => d.questions).map((q) => [q.id, q]));
       questions = questions.map((q) => (ready(q) ? q : latest.get(q.id) || q));
+      if (questions.some((q) => q.generationMode === 'study' && !ready(q)))
+        cfg = { ...cfg, includeMC: true, includeOpen: true };
       const session = createQuiz(
         questions,
         cfg,
@@ -284,6 +317,9 @@ export default function Workspace({
         services.ai && questions.some((q) => !ready(q)),
         services.minReady || 20,
       );
+      session.studySources = documents
+        .filter((d) => d.study && questions.some((q) => q.documentId === d.id))
+        .map((d) => ({ documentId: d.id, name: d.name, config: d.study!.config }));
       await updateSession(session);
       activeRef.current = session.id;
       setSessionId(session.id);
@@ -315,13 +351,14 @@ export default function Workspace({
     const pending = documents.find(
       (d) =>
         !resumed.current.has(d.id) &&
+        (!d.study || !d.study.complete) &&
         (d.status === 'extracted' ||
           d.status === 'processing' ||
           pendingIds.has(d.id) ||
           d.questions.some((q) => q.rawSourceText && q.status === 'parsing')) &&
         d.questions.some((q) => needsAnalysis(q) && !q.solveError),
     );
-    if (pending) void solveRef.current(pending);
+    if (pending && (!pending.study || !pending.study.complete)) void solveRef.current(pending);
   }, [loaded, serviceLoaded, services.ai, busy, documents, activeSession]);
   const openSession = (id: string) => {
     activeRef.current = id;
@@ -339,9 +376,12 @@ export default function Workspace({
     } catch {}
   };
   const review = documents.find((d) => d.id === reviewId);
+  const reservingStudy = Boolean(
+    configQuestions?.some((q) => q.generationMode === 'study' && !ready(q)),
+  );
   const available = combineQuestions(
     documents
-      .filter((d) => selected.includes(d.id))
+      .filter((d) => selected.includes(d.id) && studyReady(d))
       .flatMap((d) => d.questions)
       .filter((q) => (services.ai ? quizCandidate(q) : ready(q))),
   );
@@ -468,7 +508,11 @@ export default function Workspace({
               onChange={updateDocument}
               onBack={() => setView('documents')}
               onQuiz={() => setConfigQuestions(review.questions.filter(quizCandidate))}
-              onBulk={() => solve({ ...review, processing: undefined }, true, true)}
+              onBulk={
+                review.study
+                  ? undefined
+                  : () => solve({ ...review, processing: undefined }, true, true)
+              }
               processing={Boolean(processingId)}
             />
           ) : view === 'history' ? (
@@ -504,6 +548,9 @@ export default function Workspace({
                             {new Date(s.updatedAt || s.startedAt).toLocaleString('ro-RO')} ·{' '}
                             {s.questions.length} întrebări ·{' '}
                             {s.config.mode === 'exam' ? 'Examen' : 'Practică'}
+                            {s.studySources?.length
+                              ? ` · Material de studiu · ${s.studySources.reduce((n, d) => n + d.config.count, 0)} solicitate`
+                              : ''}
                           </p>
                         </div>
                         <p>
@@ -709,8 +756,9 @@ export default function Workspace({
                     const foreignQuestions = doc.questions.filter(
                       (q) => q.language === 'foreign',
                     ).length;
-                    const reviewQuestions =
-                      doc.questions.length - accepted - imageQuestions - foreignQuestions;
+                    const reviewQuestions = doc.study
+                      ? 0
+                      : doc.questions.length - accepted - imageQuestions - foreignQuestions;
                     const eligible = doc.questions.filter(
                       (q) => !q.requiresImage && q.language !== 'foreign',
                     );
@@ -743,7 +791,9 @@ export default function Workspace({
                           <div className="document-info">
                             <h3>{doc.name}</h3>
                             <p>
-                              {doc.questions.filter((q) => q.language !== 'foreign').length}{' '}
+                              {doc.study
+                                ? accepted
+                                : doc.questions.filter((q) => q.language !== 'foreign').length}{' '}
                               întrebări · {doc.pages} pagini ·{' '}
                               {new Date(doc.createdAt).toLocaleDateString('ro-RO')}
                             </p>
@@ -784,6 +834,41 @@ export default function Workspace({
                             <X size={17} />
                           </button>
                         </div>
+                        {doc.study && (
+                          <div className="batch-progress" role="status">
+                            <div>
+                              <span>
+                                Material de studiu ·{' '}
+                                {studyReady(doc) ? 'Quiz pregătit' : 'Se pregătesc întrebările'}
+                              </span>
+                              <b>
+                                {accepted} / {doc.study.config.count} generate
+                              </b>
+                            </div>
+                            <progress value={accepted} max={doc.study.config.count} />
+                            <p>
+                              {doc.study.topics} secțiuni · {doc.study.attempted} fragmente
+                              analizate · {Math.round(doc.study.elapsedMs / 1000)} secunde de
+                              procesare
+                            </p>
+                            {processingId === doc.id && (
+                              <button
+                                className="text-button"
+                                onClick={() => {
+                                  stop.current = true;
+                                }}
+                              >
+                                Oprește după lotul curent
+                              </button>
+                            )}
+                            {doc.study.exhausted && (
+                              <p>
+                                Materialul a fost epuizat: {accepted} întrebări distincte au trecut
+                                verificarea. Nu adăugăm întrebări repetitive.
+                              </p>
+                            )}
+                          </div>
+                        )}
                         {doc.repairNotice && (
                           <p className="notice" role="status">
                             {doc.repairNotice}
@@ -796,53 +881,53 @@ export default function Workspace({
                             imagini”, împreună cu pagina sursă.
                           </p>
                         )}
-                        {(doc.processing ||
-                          processingId === doc.id ||
-                          doc.status === 'partial' ||
-                          doc.status === 'processing') && (
-                          <div className="batch-progress" role="status">
-                            <div>
-                              <span>Pregătire AI · {accepted} pregătite pentru quiz</span>
-                              <b>
-                                {completed} / {eligible.length} procesate
-                              </b>
+                        {!doc.study &&
+                          (doc.processing ||
+                            processingId === doc.id ||
+                            doc.status === 'partial' ||
+                            doc.status === 'processing') && (
+                            <div className="batch-progress" role="status">
+                              <div>
+                                <span>Pregătire AI · {accepted} pregătite pentru quiz</span>
+                                <b>
+                                  {completed} / {eligible.length} procesate
+                                </b>
+                              </div>
+                              <progress value={completed} max={Math.max(1, eligible.length)} />
+                              {doc.processing && (
+                                <p className="analysis-status">
+                                  {Math.round((completed / Math.max(1, eligible.length)) * 100)}%
+                                  procesate · AI: {doc.processing.provider} · Lot curent:{' '}
+                                  {doc.processing.batchSize} întrebări
+                                  <br />
+                                  Timp scurs: {Math.floor(doc.processing.elapsedMs / 60000)}:
+                                  {String(
+                                    Math.floor(doc.processing.elapsedMs / 1000) % 60,
+                                  ).padStart(2, '0')}
+                                  {' · '}Timp estimat rămas:{' '}
+                                  {pending === 0
+                                    ? 'finalizat'
+                                    : completed > 0
+                                      ? `~${Math.max(1, Math.ceil((pending * doc.processing.elapsedMs) / completed / 60000))} min`
+                                      : 'se calculează după prima verificare'}
+                                  {reviewQuestions > 0 &&
+                                    pending === 0 &&
+                                    ` · ${reviewQuestions} de verificat manual`}
+                                </p>
+                              )}
+                              {processingId === doc.id && (
+                                <button
+                                  className="text-button"
+                                  onClick={() => {
+                                    stop.current = true;
+                                  }}
+                                >
+                                  Oprește după lotul curent
+                                </button>
+                              )}
                             </div>
-                            <progress value={completed} max={Math.max(1, eligible.length)} />
-                            {doc.processing && (
-                              <p className="analysis-status">
-                                {Math.round((completed / Math.max(1, eligible.length)) * 100)}%
-                                procesate · AI: {doc.processing.provider} · Lot curent:{' '}
-                                {doc.processing.batchSize} întrebări
-                                <br />
-                                Timp scurs: {Math.floor(doc.processing.elapsedMs / 60000)}:
-                                {String(Math.floor(doc.processing.elapsedMs / 1000) % 60).padStart(
-                                  2,
-                                  '0',
-                                )}
-                                {' · '}Timp estimat rămas:{' '}
-                                {pending === 0
-                                  ? 'finalizat'
-                                  : completed > 0
-                                    ? `~${Math.max(1, Math.ceil((pending * doc.processing.elapsedMs) / completed / 60000))} min`
-                                    : 'se calculează după prima verificare'}
-                                {reviewQuestions > 0 &&
-                                  pending === 0 &&
-                                  ` · ${reviewQuestions} de verificat manual`}
-                              </p>
-                            )}
-                            {processingId === doc.id && (
-                              <button
-                                className="text-button"
-                                onClick={() => {
-                                  stop.current = true;
-                                }}
-                              >
-                                Oprește după lotul curent
-                              </button>
-                            )}
-                          </div>
-                        )}
-                        {accepted === 0 && processingId !== doc.id && (
+                          )}
+                        {!doc.study && accepted === 0 && processingId !== doc.id && (
                           <p className="analysis-status">
                             Quiz-ul devine disponibil după verificarea răspunsurilor. Reîncearcă
                             loturile după remedierea erorii sau folosește „Vezi întrebările” pentru
@@ -885,12 +970,14 @@ export default function Workspace({
                             Vezi întrebările <ChevronRight size={15} />
                           </button>
                           <div className="button-row">
-                            {!doc.analysisComplete && (
+                            {!doc.study && !doc.analysisComplete && (
                               <button disabled={busy || !services.ai} onClick={() => analyze(doc)}>
                                 Caută întrebări suplimentare
                               </button>
                             )}
-                            {doc.questions.some(needsAnalysis) && (
+                            {(doc.study
+                              ? !doc.study.complete
+                              : doc.questions.some(needsAnalysis)) && (
                               <button disabled={busy || !services.ai} onClick={() => solve(doc)}>
                                 <Sparkles size={15} />{' '}
                                 {doc.status === 'partial' || doc.status === 'processing'
@@ -900,18 +987,24 @@ export default function Workspace({
                             )}
                             <button
                               disabled={
-                                accepted <
-                                  Math.min(
-                                    services.minReady || 20,
-                                    doc.questions.filter((q) => q.language !== 'foreign').length,
-                                  ) || !accepted
+                                !studyReady(doc) ||
+                                (!doc.study &&
+                                  accepted <
+                                    Math.min(
+                                      services.minReady || 20,
+                                      doc.questions.filter((q) => q.language !== 'foreign').length,
+                                    )) ||
+                                !accepted
                               }
                               onClick={() => start(doc.questions)}
                             >
                               <Zap size={16} /> Quiz Rapid
                             </button>
                             <button
-                              disabled={services.ai ? !doc.questions.length : !accepted}
+                              disabled={
+                                !studyReady(doc) ||
+                                (services.ai ? !doc.questions.length : !accepted)
+                              }
                               onClick={() =>
                                 setConfigQuestions(doc.questions.filter(quizCandidate))
                               }
@@ -929,6 +1022,49 @@ export default function Workspace({
           )}
         </main>
       </div>
+      {pendingFile && (
+        <div className="modal-backdrop">
+          <section
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Tipul documentului"
+          >
+            <div className="section-heading">
+              <h2>Ce conține documentul?</h2>
+              <button
+                aria-label="Anulează încărcarea"
+                onClick={() => {
+                  setPendingFile(null);
+                  if (input.current) input.current.value = '';
+                }}
+              >
+                ×
+              </button>
+            </div>
+            <p>{pendingFile.name}</p>
+            <div className="study-mode">
+              <button onClick={() => void upload(pendingFile, 'questions')}>
+                Document cu întrebări existente
+              </button>
+              <button onClick={() => void upload(pendingFile, 'study')}>
+                Document cu informații / material de studiu
+              </button>
+            </div>
+            <p>
+              Prima opțiune extrage întrebările existente. A doua creează întrebări numai din teoria
+              și notițele tale.
+            </p>
+          </section>
+        </div>
+      )}
+      {studyDraft && (
+        <StudyConfiguration
+          doc={studyDraft}
+          onCancel={() => setStudyDraft(null)}
+          onGenerate={(c) => void beginStudy(c)}
+        />
+      )}
       {configQuestions && (
         <div className="modal-backdrop">
           <section className="modal" role="dialog" aria-modal="true" aria-label="Generează Quiz">
@@ -973,12 +1109,15 @@ export default function Workspace({
                 <option value="exam">Examen — rezultate la final</option>
               </select>
             </label>
-            <fieldset>
+            <fieldset disabled={reservingStudy}>
               <legend>Tipuri de întrebări</legend>
+              {reservingStudy && (
+                <p>Tipurile au fost alese la generare. Întrebările noi vor fi adăugate automat.</p>
+              )}
               <label className="check-label">
                 <input
                   type="checkbox"
-                  checked={config.includeMC}
+                  checked={reservingStudy || config.includeMC}
                   onChange={(e) => setConfig({ ...config, includeMC: e.target.checked })}
                 />{' '}
                 Variante de răspuns
@@ -986,7 +1125,7 @@ export default function Workspace({
               <label className="check-label">
                 <input
                   type="checkbox"
-                  checked={config.includeOpen}
+                  checked={reservingStudy || config.includeOpen}
                   onChange={(e) => setConfig({ ...config, includeOpen: e.target.checked })}
                 />{' '}
                 Răspuns manual
@@ -1010,7 +1149,7 @@ export default function Workspace({
             </label>
             <button
               className="primary full-width"
-              disabled={!config.includeMC && !config.includeOpen}
+              disabled={!reservingStudy && !config.includeMC && !config.includeOpen}
               onClick={() => start(configQuestions, config)}
             >
               Începe Quiz <ArrowRight size={17} />
