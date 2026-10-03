@@ -5,7 +5,11 @@ import { createCanvas, DOMMatrix, ImageData, Path2D } from '@napi-rs/canvas';
 import { DOMParser } from '@xmldom/xmldom';
 import { extractDocx, pdfTextLines } from './extract';
 import type { TextLine } from './model';
-const require = createRequire(import.meta.url);
+// Resolve external assets at runtime: Turbopack rewrites literal require.resolve calls.
+const runtimeRequire = createRequire(path.join(process.cwd(), 'package.json'));
+function resolveAsset(specifier: string): string {
+  return runtimeRequire.resolve(specifier);
+}
 // A single worker per invocation bounds WASM memory. Each page is committed before the next.
 export async function openServerDocument(bytes: Uint8Array, extension: 'pdf' | 'docx') {
   if (extension === 'docx') {
@@ -26,7 +30,7 @@ export async function openServerDocument(bytes: Uint8Array, extension: 'pdf' | '
     throw new Error('SCAN_INVALID');
   Object.assign(globalThis, { DOMMatrix, ImageData, Path2D });
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
-  const pdfRoot = path.dirname(require.resolve('pdfjs-dist/package.json'));
+  const pdfRoot = path.dirname(resolveAsset('pdfjs-dist/package.json'));
   pdfjs.GlobalWorkerOptions.workerSrc = pathToFileURL(
     path.join(pdfRoot, 'legacy/build/pdf.worker.mjs'),
   ).href;
@@ -78,8 +82,8 @@ export async function openServerDocument(bytes: Uint8Array, extension: 'pdf' | '
         if (!worker) {
           const { createWorker, OEM, PSM } = await import('tesseract.js');
           worker = await createWorker(['ron', 'eng'], OEM.LSTM_ONLY, {
-            workerPath: require.resolve('tesseract.js/src/worker-script/node/index.js'),
-            corePath: require.resolve('tesseract.js-core'),
+            workerPath: resolveAsset('tesseract.js/src/worker-script/node/index.js'),
+            corePath: resolveAsset('tesseract.js-core'),
             langPath: path.join(process.cwd(), 'public/ocr/lang'),
             cachePath: '/tmp',
             cacheMethod: 'readOnly',
