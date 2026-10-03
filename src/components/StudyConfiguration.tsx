@@ -131,6 +131,7 @@ export default function StudyConfiguration({
             <input
               type="number"
               min={1}
+              disabled={!a.maximum}
               max={a.maximum}
               value={count || ''}
               onChange={(e) => setCount(Number(e.target.value))}
@@ -138,8 +139,14 @@ export default function StudyConfiguration({
           </label>
           {!valid && (
             <p className="error" role="alert">
-              Materialul selectat permite aproximativ {a.maximum} întrebări utile. Alege între 1 și{' '}
-              {a.maximum} și un interval valid de pagini.
+              {a.maximum === 0 ? (
+                'Materialul selectat este prea scurt pentru un quiz util. Selectează mai multe pagini sau încarcă un material mai complet.'
+              ) : (
+                <>
+                  Materialul selectat permite aproximativ {a.maximum} întrebări utile. Alege între 1
+                  și {a.maximum} și un interval valid de pagini.
+                </>
+              )}
             </p>
           )}
         </fieldset>
@@ -180,10 +187,12 @@ export default function StudyConfiguration({
             </select>
           </label>
         </div>
-        <p>
-          Poți începe după {Math.min(20, count || 1, a.maximum)} întrebări pregătite. Păstrează
-          aplicația deschisă pentru continuarea generării.
-        </p>
+        {a.maximum > 0 && (
+          <p>
+            Poți începe după {Math.min(20, count || 1, a.maximum)} întrebări pregătite. Păstrează
+            aplicația deschisă pentru continuarea generării.
+          </p>
+        )}
         <button
           className="primary"
           disabled={!valid}
