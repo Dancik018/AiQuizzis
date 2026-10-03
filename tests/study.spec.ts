@@ -118,6 +118,10 @@ for (const extension of ['pdf', 'docx'])
 test('study PDF reads rasterized lesson text even when the title is selectable', async ({
   page,
 }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8 });
+    Object.defineProperty(navigator, 'deviceMemory', { get: () => 8 });
+  });
   await page.goto('/');
   const png = await page.evaluate(() => {
     const canvas = document.createElement('canvas');
@@ -141,6 +145,14 @@ test('study PDF reads rasterized lesson text even when the title is selectable',
   const font = await pdf.embedFont(StandardFonts.Helvetica);
   sheet.drawText('Material de laborator pentru studiu', { x: 20, y: 370, size: 18, font });
   sheet.drawImage(await pdf.embedPng(Buffer.from(png, 'base64')), {
+    x: 15,
+    y: 100,
+    width: 570,
+    height: 210,
+  });
+  const second = pdf.addPage([600, 400]);
+  second.drawText('A doua pagina a laboratorului', { x: 20, y: 370, size: 18, font });
+  second.drawImage(await pdf.embedPng(Buffer.from(png, 'base64')), {
     x: 15,
     y: 100,
     width: 570,
@@ -171,6 +183,9 @@ test('study PDF reads rasterized lesson text even when the title is selectable',
       (resolve) => (get.onsuccess = () => resolve(get.result)),
     );
     db.close();
+    const order = docs[0].lines.map((l) => l.page);
+    if (docs[0].pages !== 2 || order.some((p, i) => i > 0 && p < order[i - 1]))
+      throw new Error('Parallel extraction lost page order');
     return docs.flatMap((d) => d.lines.map((l) => l.text)).join(' ');
   });
   expect(text).toContain('ALBATROS');

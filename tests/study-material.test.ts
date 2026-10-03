@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   segmentStudy,
+  studyGenerationOrder,
   coverageOrder,
   studyContext,
   studyBatches,
@@ -119,4 +120,29 @@ test('v3 preserves educational statements formatted as slide headings while v2 I
   const enhanced = segmentStudy(slide, true);
   assert.ok(!legacy.units.some((u) => u.text.includes('reprezintă')));
   assert.ok(enhanced.units.some((u) => u.text.includes('reprezintă')));
+});
+
+test('generation prioritizes testable passages across pages without dropping low-density sources', () => {
+  const units: StudyUnit[] = [
+    { id: 'unit-0', sectionId: 's0', section: 'Intro', page: 1, text: 'Introducere' },
+    {
+      id: 'unit-1',
+      sectionId: 's1',
+      section: 'Sensors',
+      page: 2,
+      text: 'Senzorul este un dispozitiv care permite măsurarea temperaturii în camera de laborator.',
+    },
+    { id: 'unit-2', sectionId: 's2', section: 'Course', page: 3, text: 'Cursul electronicii' },
+    {
+      id: 'unit-3',
+      sectionId: 's3',
+      section: 'Safety',
+      page: 30,
+      text: 'Sistemul permite izolarea componentelor deoarece accesul de la distanță introduce riscuri de securitate.',
+    },
+  ];
+  const result = studyGenerationOrder(units);
+  assert.deepEqual(new Set(result.slice(0, 2).map((u) => u.page)), new Set([2, 30]));
+  assert.equal(result.length, units.length);
+  assert.equal(new Set(result.map((u) => u.id)).size, units.length);
 });

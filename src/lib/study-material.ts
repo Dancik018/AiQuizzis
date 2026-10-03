@@ -209,3 +209,21 @@ export function studyBatches(units: StudyUnit[], kind: StudyConfig['kind'], requ
   if (batch.length) result.push(batch);
   return result;
 }
+
+// Scan all material locally, but spend the first AI calls on passages with testable content.
+// Low-density labels are retained for later passes and as neighboring context.
+export function studyGenerationOrder(units: StudyUnit[]) {
+  const rich = new Set(
+    units
+      .filter(
+        (u) =>
+          educationalWeight(u) >= 2 ||
+          (/[:=]/.test(u.text) && normalize(u.text).split(' ').length >= 4),
+      )
+      .map((u) => u.id),
+  );
+  return [
+    ...coverageOrder(units.filter((u) => rich.has(u.id))),
+    ...coverageOrder(units.filter((u) => !rich.has(u.id))),
+  ];
+}

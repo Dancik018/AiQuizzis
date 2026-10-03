@@ -132,12 +132,26 @@ export async function extractFile(
   const pdfjs = await import('pdfjs-dist');
   pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
   const task = pdfjs.getDocument({ data: bytes, useSystemFonts: true });
-  const ocr = createBrowserOcr();
+  const device: { hardwareConcurrency?: number; deviceMemory?: number } =
+    typeof navigator === 'undefined' ? {} : navigator;
+  const memory = (device as { deviceMemory?: number }).deviceMemory;
+  const touchDevice = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+  const concurrency =
+    !touchDevice &&
+    options.studyMaterial &&
+    (device.hardwareConcurrency || 2) >= 6 &&
+    (!memory || memory >= 8)
+      ? 2
+      : 1;
+  const ocrWorkers = Array.from({ length: concurrency }, () => createBrowserOcr());
   try {
     const pdf = await task.promise;
     const lines: TextLine[] = [];
-    for (let n = 1; n <= pdf.numPages; n++) {
-      progress({ stage: 'Extragere pagini PDF', completed: n - 1, total: pdf.numPages });
+    let completedPages = 0;
+    const extractPage = async (n: number, workerIndex: number) => {
+      const lines: TextLine[] = [];
+      const report = (p: ExtractionProgress) => progress({ ...p, completed: completedPages });
+      report({ stage: 'Extragere pagini PDF', completed: completedPages, total: pdf.numPages });
       const page = await pdf.getPage(n);
       const content = await page.getTextContent();
       const items = content.items.filter(
@@ -155,7 +169,7 @@ export async function extractFile(
         [pdfjs.OPS.paintImageXObject, pdfjs.OPS.paintInlineImageXObject].includes(fn),
       );
       if (textLength < 15 || (options.studyMaterial && textLength < 250 && hasImage)) {
-        progress({ stage: `OCR — pagina ${n}`, completed: n - 1, total: pdf.numPages });
+        report({ stage: `OCR — pagina ${n}`, completed: n - 1, total: pdf.numPages });
         const original = page.getViewport({ scale: 1 });
         const viewport = page.getViewport({
           scale: Math.min(2, 2400 / Math.max(original.width, original.height)),
@@ -165,8 +179,8 @@ export async function extractFile(
         canvas.height = viewport.height;
         try {
           await page.render({ canvas, viewport }).promise;
-          const text = await ocr.recognize(canvas, (stage, fraction) =>
-            progress({
+          const text = await ocrWorkers[workerIndex].recognize(canvas, (stage, fraction) =>
+            report({
               stage:
                 stage +
                 ' — pagina ' +
@@ -240,7 +254,20 @@ export async function extractFile(
         if (line) lines.push(line);
       }
       page.cleanup();
-      progress({ stage: 'Extragere pagini PDF', completed: n, total: pdf.numPages });
+      completedPages++;
+      report({ stage: 'Extragere pagini PDF', completed: completedPages, total: pdf.numPages });
+      return lines;
+    };
+    for (let first = 1; first <= pdf.numPages; first += concurrency) {
+      // Keep memory bounded and join in page order even when OCR finishes out of order.
+      const pages = Array.from(
+        { length: Math.min(concurrency, pdf.numPages - first + 1) },
+        (_, i) => extractPage(first + i, i),
+      );
+      const results = await Promise.allSettled(pages);
+      const failure = results.find((r) => r.status === 'rejected');
+      if (failure?.status === 'rejected') throw failure.reason;
+      for (const result of results) if (result.status === 'fulfilled') lines.push(...result.value);
     }
     if (!lines.some((l) => l.text.trim()))
       throw new Error('Documentul nu conține text utilizabil.');
@@ -252,7 +279,7 @@ export async function extractFile(
       throw new Error('PDF-ul este deteriorat sau invalid.');
     throw error;
   } finally {
-    await ocr.dispose();
+    await Promise.all(ocrWorkers.map((ocr) => ocr.dispose()));
     await task.destroy();
   }
 }

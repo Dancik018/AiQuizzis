@@ -29,6 +29,7 @@ export type StudyUnit = {
 export type StudyState = {
   analysisVersion?: 1 | 2 | 3;
   generationPass?: number;
+  generationConcurrency?: 1 | 2;
   pagesScanned?: number;
   wordsScanned?: number;
   failedUnits?: string[][];

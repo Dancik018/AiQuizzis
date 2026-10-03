@@ -12,11 +12,17 @@ export async function POST(req: Request) {
       z.object({
         documentId: z.string().min(1).max(100),
         units: z.array(z.string().max(80)).min(1).max(20),
+        parallel: z.boolean().optional(),
       }),
       4000,
     );
     const { document } = await requireDocument(req, data.documentId, data.units.length, context);
-    return privateJSON({ questions: await generateStudy(document, data.units) });
+    const retryUnits: string[] = [];
+    const questions = await generateStudy(document, data.units, undefined, {
+      parallel: data.parallel,
+      onRetryUnits: (ids) => retryUnits.push(...ids),
+    });
+    return privateJSON({ questions, retryUnits });
   } catch (e) {
     return apiError(e);
   }

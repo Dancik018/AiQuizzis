@@ -353,3 +353,169 @@ test('continuing a v2 result upgrades source analysis without losing accepted an
   assert.ok(saved.study!.queue.length);
   assert.equal(saved.study!.complete, false);
 });
+
+test('parallel study generation is bounded to two calls and combines independently verified unique slots', async () => {
+  const d = prepareStudy(doc, config);
+  const units = studyAnalysis(lines).units.slice(0, 20);
+  let active = 0,
+    peak = 0,
+    generated = 0;
+  const ai: typeof structuredAI = async (schema, name, input) => {
+    const data = JSON.parse(input[1].content);
+    if (name === 'study_questions') {
+      active++;
+      peak = Math.max(peak, active);
+      generated++;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      active--;
+      return schema.parse({
+        questions: data.targetUnitIds.map((id: string) => {
+          const u = units.find((u) => u.id === id)!;
+          return {
+            unitId: id,
+            concept: `fact ${id}`,
+            question: `Ce port este asociat protocolului ${id}?`,
+            kind: 'multiple_choice',
+            difficulty: 'medium',
+            options: ['1000', '2', '3', '4'],
+            correctIndex: 0,
+            answer: '1000',
+            quote: u.text,
+          };
+        }),
+      });
+    }
+    assert.ok(
+      data.questions.every(
+        (q: Record<string, unknown>) => !('correctIndex' in q) && !('answer' in q),
+      ),
+    );
+    return schema.parse({
+      checks: data.questions.map((_: unknown, index: number) => ({
+        index,
+        valid: true,
+        confidence: 0.97,
+        correctIndex: 0,
+      })),
+    });
+  };
+  const qs = await generateStudy(
+    d,
+    units.map((u) => u.id),
+    ai,
+  );
+  assert.equal(peak, 2);
+  assert.equal(generated, 2);
+  assert.equal(qs.length, 20);
+  assert.equal(new Set(qs.map((q) => q.id)).size, 20);
+});
+
+test('one failed parallel generation preserves verified sibling and reports only failed source IDs', async () => {
+  const d = prepareStudy(doc, config),
+    units = studyAnalysis(lines).units.slice(0, 20);
+  let retries: string[] = [];
+  const ai: typeof structuredAI = async (schema, name, input) => {
+    const data = JSON.parse(input[1].content);
+    if (name === 'study_questions') {
+      if (data.targetUnitIds.includes(units[10].id)) throw new Error('AI_TIMEOUT');
+      const u = units[0];
+      return schema.parse({
+        questions: [
+          {
+            unitId: u.id,
+            concept: 'unique port',
+            question: 'Ce port folosește protocolul?',
+            kind: 'multiple_choice',
+            difficulty: 'medium',
+            options: ['1000', '2', '3', '4'],
+            correctIndex: 0,
+            answer: '1000',
+            quote: u.text,
+          },
+        ],
+      });
+    }
+    assert.ok(units.every((u) => data.source.some((source: { id: string }) => source.id === u.id)));
+    return schema.parse({ checks: [{ index: 0, valid: true, confidence: 0.97, correctIndex: 0 }] });
+  };
+  const qs = await generateStudy(
+    d,
+    units.map((u) => u.id),
+    ai,
+    {
+      onRetryUnits: (ids) => {
+        retries = ids;
+      },
+    },
+  );
+  assert.equal(qs.length, 1);
+  assert.deepEqual(
+    retries,
+    units.slice(10).map((u) => u.id),
+  );
+});
+
+test('partial generation retries failed source only and keeps earlier saved answers', async () => {
+  const d = prepareStudy(doc, { ...config, count: 4 });
+  d.study!.queue = d.study!.queue.slice(0, 1);
+  let saved = d;
+  const calls: string[][] = [];
+  await processStudy(
+    d,
+    () => {},
+    () => false,
+    {
+      save: async (next) => {
+        saved = structuredClone(next);
+      },
+      sleep: async () => {},
+      request: async (_url, init) => {
+        const ids = JSON.parse(String(init?.body)).units as string[];
+        calls.push(ids);
+        const pending = saved.questions.filter((q) => !ready(q));
+        return Response.json({
+          questions: pending
+            .slice(0, 2)
+            .map((q, i) => solved(q, saved.questions.filter(ready).length + i)),
+          retryUnits: calls.length === 1 ? ids.slice(2) : [],
+        });
+      },
+    },
+  );
+  assert.equal(saved.questions.filter(ready).length, 4);
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls[1], calls[0].slice(2));
+  assert.equal(saved.questions[0].correctAnswer, '1000');
+});
+
+test('ambiguous low-yield material switches to broader single-call generation automatically', async () => {
+  const d = prepareStudy(doc, { ...config, count: 20 });
+  d.study!.queue = d.study!.queue.slice(0, 2);
+  let saved = d;
+  const modes: boolean[] = [];
+  await processStudy(
+    d,
+    () => {},
+    () => false,
+    {
+      save: async (next) => {
+        saved = structuredClone(next);
+      },
+      sleep: async () => {},
+      request: async (_url, init) => {
+        const body = JSON.parse(String(init?.body));
+        modes.push(body.parallel);
+        const count = modes.length === 1 ? 3 : 17;
+        return Response.json({
+          questions: saved.questions
+            .filter((q) => !ready(q))
+            .slice(0, count)
+            .map((q, i) => solved(q, saved.questions.filter(ready).length + i)),
+        });
+      },
+    },
+  );
+  assert.deepEqual(modes, [true, false]);
+  assert.equal(saved.questions.filter(ready).length, 20);
+  assert.equal(saved.study!.generationConcurrency, 1);
+});

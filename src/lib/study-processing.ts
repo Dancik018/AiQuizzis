@@ -1,4 +1,4 @@
-import { coverageOrder, studyBatches } from './study-material';
+import { studyGenerationOrder, studyBatches } from './study-material';
 import { accountFetch, putDocument } from './storage';
 import { ready, questionSchema, type DocumentSet } from './model';
 import { studyAnalysis, studyPlaceholders, type StudyConfig } from './study';
@@ -6,7 +6,7 @@ export function prepareStudy(doc: DocumentSet, config: StudyConfig): DocumentSet
   const a = studyAnalysis(doc.lines, config);
   if (config.count < 1 || config.count > a.maximum || config.count > 200)
     throw new Error(`Alege între 1 și ${a.maximum} întrebări.`);
-  const queue = studyBatches(coverageOrder(a.units), config.kind, config.count);
+  const queue = studyBatches(studyGenerationOrder(a.units), config.kind, config.count);
   return {
     ...doc,
     questions: studyPlaceholders(doc, config),
@@ -14,6 +14,7 @@ export function prepareStudy(doc: DocumentSet, config: StudyConfig): DocumentSet
     study: {
       analysisVersion: 3,
       generationPass: 1,
+      generationConcurrency: 2,
       pagesScanned: new Set(doc.lines.map((l) => l.page)).size,
       wordsScanned: a.words,
       config,
@@ -77,6 +78,9 @@ export async function processStudy(
   }
   doc.study.complete = false;
   doc.study.exhausted = false;
+  const sourceOrder = studyGenerationOrder(
+    studyAnalysis(doc.lines, doc.study.config, doc.study.analysisVersion || 1).units,
+  );
   const refill = () => {
     const study = doc.study!;
     if (
@@ -87,13 +91,26 @@ export async function processStudy(
     )
       return false;
     study.generationPass = (study.generationPass ?? 1) + 1;
-    const analysis = studyAnalysis(doc.lines, study.config, study.analysisVersion || 1);
-    // Scan all selected material again: previously productive passages may contain other facts.
-    const ordered = coverageOrder(analysis.units);
-    const tested = new Set(doc.questions.filter(ready).map((q) => q.sourceUnitId));
+    // Reuse the full local analysis; AI revisits its facts, parsing is not repeated.
+    const ordered = sourceOrder;
+    const tested = new Map<string, number>();
+    for (const q of doc.questions.filter(ready))
+      if (q.sourceUnitId) tested.set(q.sourceUnitId, (tested.get(q.sourceUnitId) || 0) + 1);
+    const promising = new Set(
+      ordered
+        .filter((u) => {
+          const words = u.text.split(/\s+/).length;
+          return (
+            words >= 18 &&
+            Math.min(4, Math.max(1, Math.floor(words / 12))) > (tested.get(u.id) || 0)
+          );
+        })
+        .map((u) => u.id),
+    );
     const prioritized = [
-      ...ordered.filter((u) => !tested.has(u.id)),
-      ...ordered.filter((u) => tested.has(u.id)),
+      ...ordered.filter((u) => promising.has(u.id)),
+      ...ordered.filter((u) => !promising.has(u.id) && !tested.has(u.id)),
+      ...ordered.filter((u) => !promising.has(u.id) && tested.has(u.id)),
     ];
     study.queue = studyBatches(prioritized, study.config.kind, study.generationPass === 2 ? 10 : 5);
     return study.queue.length > 0;
@@ -121,7 +138,11 @@ export async function processStudy(
         .request('/api/study', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ documentId: doc.id, units: ids }),
+          body: JSON.stringify({
+            documentId: doc.id,
+            units: ids,
+            parallel: doc.study!.generationConcurrency !== 1,
+          }),
           signal: AbortSignal.timeout(125000),
         })
         .catch(() => null);
@@ -133,9 +154,27 @@ export async function processStudy(
             .filter((q) => q.documentId === doc.id && q.generationMode === 'study' && ready(q))
             .map((q) => [q.id, q]),
         );
+        const expected = Math.min(
+          20,
+          ids.length,
+          doc.study!.config.count - doc.questions.filter(ready).length,
+        );
+        // Sparse/ambiguous material can benefit from choosing targets across the whole batch.
+        if (!result.retryUnits?.length && expected >= 8 && byId.size / expected < 0.35)
+          doc.study!.generationConcurrency = 1;
         doc.questions = doc.questions.map((q) => (byId.get(q.id) as typeof q) || q);
         doc.study!.queue.shift();
-        doc.study!.attempted += ids.length;
+        const retryUnits = Array.isArray(result.retryUnits)
+          ? [
+              ...new Set<string>(
+                result.retryUnits.filter(
+                  (id: unknown) => typeof id === 'string' && ids.includes(id),
+                ),
+              ),
+            ]
+          : [];
+        if (retryUnits.length) doc.study!.queue.push(retryUnits);
+        doc.study!.attempted += ids.length - retryUnits.length;
         success = true;
         doc.error = undefined;
       } else {
