@@ -16,7 +16,7 @@ export default function StudyConfiguration({
   const [pageFrom, setFrom] = useState(1),
     [pageTo, setTo] = useState(doc.pages);
   const [count, setCount] = useState(all.recommended);
-  const [kind, setKind] = useState<StudyConfig['kind']>('mixed');
+  const [kind, setKind] = useState<StudyConfig['kind']>('multiple_choice');
   const [difficulty, setDifficulty] = useState<StudyConfig['difficulty']>('mixed');
   const a = useMemo(
     () => studyAnalysis(doc.lines, { sections, pageFrom, pageTo }),
@@ -155,12 +155,8 @@ export default function StudyConfiguration({
             Tipul întrebărilor
             <select value={kind} onChange={(e) => setKind(e.target.value as StudyConfig['kind'])}>
               {[
-                ['mixed', 'Mixt'],
                 ['multiple_choice', 'Variante de răspuns'],
-                ['true_false', 'Adevărat / Fals'],
-                ['short_answer', 'Răspuns scurt'],
-                ['definition', 'Definiții'],
-                ['scenario', 'Scenarii practice'],
+                ['short_answer', 'Răspuns manual'],
               ].map(([v, t]) => (
                 <option key={v} value={v}>
                   {t}
