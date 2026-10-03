@@ -7,6 +7,12 @@ const config: NextConfig = {
       './public/ocr/lang/*.gz',
       './node_modules/tesseract.js/src/**/*',
       './node_modules/tesseract.js-core/**/*',
+      // Worker threads load these outside Next's statically traced import graph.
+      './node_modules/bmp-js/**/*',
+      './node_modules/is-url/**/*',
+      './node_modules/wasm-feature-detect/**/*',
+      './node_modules/idb-keyval/**/*',
+      './node_modules/regenerator-runtime/**/*',
       './node_modules/pdfjs-dist/legacy/build/*',
       './node_modules/pdfjs-dist/standard_fonts/*',
       './node_modules/pdfjs-dist/cmaps/*',

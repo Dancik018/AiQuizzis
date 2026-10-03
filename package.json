@@ -41,7 +41,8 @@
     "lint": "eslint .",
     "test": "tsx --test tests/*.test.ts",
     "test:e2e": "playwright test",
-    "predev": "node scripts/prepare.mjs"
+    "predev": "node scripts/prepare.mjs",
+    "test:ocr-package": "node scripts/verify-ocr-package.mjs"
   },
   "engines": {
     "node": "24.x"

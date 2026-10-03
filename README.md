@@ -108,7 +108,6 @@ Verified responses from independent/judge passes are cached under both their cur
 
 A real OpenAI run with synthetic, actual PDF and DOCX files of 200 short arithmetic questions each completed extraction, four-option generation, independent verification and quiz refresh/resume: PDF 94.4 seconds (first 20 in 25.0 seconds), DOCX 68.6 seconds (first 20 in 22.6 seconds). All 400 answers matched independently calculated expectations; neither document required retries. These measurements used the local production build and real API, not mocked inference, and are not guarantees for complex academic/scanned documents or Vercel latency.
 
-
 ### Optimized option generation
 
 First-pass option generation uses a dedicated compact schema: one correct answer plus three distractors, with server-assigned option positions. The independent verifier receives only question/options and returns a compact verdict. Existing source options and judge resolution keep their full validation path. Ambiguous or multiple-correct generated sets are escalated and never silently accepted as single-choice. All ready/leakage/schema guards remain active.
@@ -116,7 +115,6 @@ First-pass option generation uses a dedicated compact schema: one correct answer
 Two requests can warm the initial buffer when generation is enabled, then the existing bounded pool handles the remaining document. Adaptive batches now budget output tokens and source-answer length as well as input size; long definitions are split earlier. The best-effort application limit is configurable through QUIZ_API_REQUESTS_PER_MINUTE (default 90, maximum 300). Local throttling returns the actual remaining window, while provider Retry-After and quota errors remain honored. This is per-instance protection, not a distributed rate limiter.
 
 A controlled real-API comparison on the same 20 computing questions measured first-pass generation at 21.6 seconds / 2,494 output tokens before, versus 14.3 seconds / 1,897 output tokens after. A second compact run generated and independently verified all 20 in 21.3 seconds total. These are individual measurements, not guaranteed latency or proof of correctness for every subject. Optimization follows [OpenAI latency guidance](https://developers.openai.com/api/docs/guides/latency-optimization) on reducing output tokens and parallelizing independent work.
-
 
 ### Trilingual medical test documents
 
@@ -128,9 +126,7 @@ Questions explicitly referring to missing diagrams are marked with their source 
 
 Regression coverage includes 300 synthetic trilingual question groups, repeated stems, mixed-script CS/CM, preserved five-option sets, saved-data repair and missing-diagram guards. A supplied 218-page PDF was extracted with the actual browser PDF parser: before the fix 503 candidates exceeded the option limit; after the fix every extracted candidate passed the request schema with five options. The private source document is not part of the repository.
 
-
 Independent choice verification also uses the compact schema for existing single/multiple-answer questions, preserving every original option. Multiple-answer batches budget the possible combined answer length. Foreign-language verdicts are persisted even when the model supplies no answer, avoiding wasteful repeated solving of rejected translations. Processing progress counts completed verification or isolated failures, rather than calling a first-pass answer finished; diagram/foreign exclusions are shown separately. Manual multiple-answer edits recompute the answer from selected options on save.
-
 
 A real OpenAI end-to-end run on that 218-page medical PDF completed all queued work in 426.6 seconds: 132 HTTP-successful batches, zero invalid-request questions. Of 591 candidates, the final safety classification retained 476 ready questions, excluded 33 foreign-language candidates and 51 figure-dependent questions, and left 31 for manual review. Two of the figure references were identified from this run and added to the arrow/highlighted-structure guard. This is a processing/recovery benchmark, not independent medical validation of every AI answer or a guarantee of latency. Source images are still not attached automatically.
 
@@ -155,6 +151,7 @@ Security tests include actual PostgreSQL execution via PGlite (RLS, concurrent c
 Administratorii pot șterge definitiv un cont obișnuit din Administrare → Șterge definitiv contul, confirmând adresa sa de email. Migrarea `202609240002_delete_accounts.sql` elimină atomic utilizatorul Auth și datele asociate (documente, quiz-uri, istoric, generări); conturile de administrator sunt protejate. Nu se cere o cheie service-role în aplicație. Ștergerea nu împiedică o înregistrare nouă ulterioară cu aceeași adresă.
 
 ## Telegram bot
+
 AiQuizzis_bot uses /api/telegram as a secret-authenticated webhook. Set TELEGRAM_WEBHOOK_SECRET, TELEGRAM_BOT_TOKEN and TELEGRAM_ADMIN_CHAT_ID in Vercel Production, deploy, then run node scripts/configure-telegram.mjs with the token and webhook secret supplied privately in the process environment. Never commit tokens. Commands: /start, /info, /price, /buy, /link, /help, /groupid. Prices: 1 attempt/20 lei, 7/100 lei, 20/200 lei. Private-chat buyers select a package and reply to the bot prompt with their account email; requests are forwarded only to the configured group, marked unpaid. There is no payment processing, automatic credit allocation or automatic account verification. Admin must verify email/account ownership and payment. Stable order IDs and best-effort per-instance deduplication help identify Telegram retries; administrators must not fulfill the same ID twice. Order emails are not persisted in the application database; they are sent to the admin Telegram group, disclosed in the prompt. Telegram retains messages under its own policies. /groupid only returns the current group's ID and does not authorize it as a destination.
 
 ## Study material quizzes
@@ -178,11 +175,9 @@ Coverage planning now samples page/section groups from beginning, end and the in
 A local synthetic planning benchmark scanned all 10,000 fragments across 250 pages in about 2.3 seconds on the development machine; its first 20 targets covered 20 different pages including the final page. This measures deterministic analysis/planning only, not AI generation latency. Provider verification can legitimately return fewer accepted questions than requested.
 Choice verification in v2 does not receive the generator's chosen option or explanation. It independently selects an option, and any disagreement is rejected. Open answers are checked semantically against the supplied reference. Displayed explanations use the exact source quotation, reducing both generated output and unsupported explanatory claims. Numeric table cells are retained rather than indiscriminately filtered as page numbers.
 
-
 Generarea din material de studiu reanalizează automat sursa în până la patru treceri când prima nu atinge numărul ales. Trecerile următoare folosesc loturi de 10, apoi 5 fragmente și caută fapte distincte încă netestate. Enunțurile educaționale formatate ca titluri sunt păstrate în analiza v3; documentele vechi rămân compatibile. Butonul de continuare permite reluarea unui rezultat parțial fără reîncărcare. Numărul solicitat rămâne ținta, dar întrebările fără suport în material sau duplicate nu sunt acceptate pentru a completa artificial numărul.
 
 PDF-urile din modul de studiu folosesc OCR local și pe paginile cu imagini și mai puțin de 250 caractere selectabile, nu doar pe paginile complet scanate. Pentru un document salvat incomplet, „Rescanează PDF-ul cu OCR” permite selectarea aceluiași fișier și actualizarea documentului existent (același ID, fără un nou credit de încărcare); întrebările deja validate se păstrează. Rescanarea completă cere ca toate secțiunile să fi fost selectate. OCR citește textul din imagini, nu garantează interpretarea semantică a diagramelor fără explicații.
-
 
 Procesarea materialelor prioritizează pasajele cu informație testabilă din toate paginile; titlurile și fragmentele scurte rămân în sursă și în trecerile ulterioare. Generarea unui lot suficient de mare folosește cel mult două apeluri AI concurente, urmate de verificarea independentă comună și eliminarea duplicatelor. Sub-loturile eșuate sunt reluate fără pierderea întrebărilor validate. Materialele cu randament redus revin automat la un singur apel de generare pentru întregul lot. Analiza locală se reutilizează între treceri. Pe calculatoare cu minimum șase fire de execuție și suficientă memorie, scanarea materialelor poate folosi două pagini/lucrători OCR simultan; dispozitivele tactile și calculatoarele cu resurse reduse folosesc unul. Ordinea paginilor și progresul real sunt păstrate. Aceste optimizări nu schimbă pragul de verificare ori limita de 200 întrebări.
 
@@ -197,3 +192,7 @@ Fiecare cerere procesează maximum 40 de pagini de text sau două pagini OCR, cu
 Textul scanat este stocat separat de document/quiz și încărcat paginat. Salvările progresului AI nu retrimit sute de pagini. Copia originală temporară este eliminată la finalul scanării; textul și metadatele paginilor rămân private în cont. Scanările nefinalizate pot fi eliminate din interfață. Ștergerea unui document elimină textul său scanat dacă nu este utilizat de alt document; snapshot-urile quizurilor deja salvate rămân disponibile. Conturile șterse elimină joburile/chunkurile prin cascade; pentru o încărcare abandonată înainte de finalizare, un obiect temporar poate rămâne orfan în Storage și necesită curățare administrativă.
 
 Fără migrare, aplicația păstrează traseul anterior de extragere/OCR în browser. Nu sunt necesare chei OCR noi. Testele includ PDF real generat cu 501 pagini, DOCX cu 510 întrebări, OCR rasterizat și verificarea RLS/lease/501 checkpointuri în PostgreSQL.
+
+### Verificarea pachetului OCR
+
+După `npm run build`, rulează `npm run test:ocr-package`. Testul pornește motorul OCR român/englez într-un director izolat folosind exclusiv fișierele incluse în trasarea rutei de producție, pentru a detecta dependențe omise la deployment.
