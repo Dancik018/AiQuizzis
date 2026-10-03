@@ -435,7 +435,11 @@ test('one failed parallel generation preserves verified sibling and reports only
         ],
       });
     }
-    assert.ok(units.every((u) => data.source.some((source: { id: string }) => source.id === u.id)));
+    assert.ok(
+      data.questions.every((q: { unitId: string }) =>
+        data.source.some((source: { id: string }) => source.id === q.unitId),
+      ),
+    );
     return schema.parse({ checks: [{ index: 0, valid: true, confidence: 0.97, correctIndex: 0 }] });
   };
   const qs = await generateStudy(
@@ -518,4 +522,165 @@ test('ambiguous low-yield material switches to broader single-call generation au
   assert.deepEqual(modes, [true, false]);
   assert.equal(saved.questions.filter(ready).length, 20);
   assert.equal(saved.study!.generationConcurrency, 1);
+});
+
+test('verification overlaps sibling generation and failed verification retries only that lane', async () => {
+  const d = prepareStudy(doc, config),
+    units = studyAnalysis(lines).units.slice(0, 20);
+  let firstVerified = false,
+    releaseSibling: () => void = () => {};
+  const gate = new Promise<void>((resolve) => {
+    releaseSibling = resolve;
+  });
+  let retry: string[] = [];
+  const ai: typeof structuredAI = async (schema, name, input) => {
+    const data = JSON.parse(input[1].content);
+    if (name === 'study_questions') {
+      if (data.targetUnitIds.includes(units[10].id)) {
+        await gate;
+        assert.equal(firstVerified, true);
+      }
+      return schema.parse({
+        questions: data.targetUnitIds.map((id: string) => ({
+          unitId: id,
+          concept: `fact ${id}`,
+          question: `Ce port corespunde protocolului ${id}?`,
+          kind: 'multiple_choice',
+          difficulty: 'medium',
+          options: ['1000', '2', '3', '4'],
+          correctIndex: 0,
+          answer: '1000',
+          quote: units.find((u) => u.id === id)!.text,
+        })),
+      });
+    }
+    if (data.questions[0].unitId === units[10].id) {
+      assert.ok(data.alreadyTested.includes(`fact ${units[0].id}`));
+      throw new Error('AI_TIMEOUT');
+    }
+    assert.ok(data.source.length < studyAnalysis(lines).units.length);
+    assert.ok(
+      data.source.every(
+        (u: Record<string, unknown>) => Object.keys(u).sort().join(',') === 'id,text',
+      ),
+    );
+    firstVerified = true;
+    releaseSibling();
+    return schema.parse({
+      checks: data.questions.map((_: unknown, index: number) => ({
+        index,
+        valid: true,
+        confidence: 0.97,
+        correctIndex: 0,
+      })),
+    });
+  };
+  const qs = await generateStudy(
+    d,
+    units.map((u) => u.id),
+    ai,
+    {
+      onRetryUnits: (ids) => {
+        retry = ids;
+      },
+    },
+  );
+  assert.equal(qs.length, 10);
+  assert.deepEqual(
+    retry,
+    units.slice(10).map((u) => u.id),
+  );
+});
+
+test('recovery keeps useful batch throughput instead of shrinking every later pass', async () => {
+  const d = prepareStudy(doc, { ...config, count: 40 });
+  d.study!.queue = [d.study!.queue[0]];
+  let saved = d,
+    laterBatch = 0;
+  await processStudy(
+    d,
+    () => {},
+    () => laterBatch > 0,
+    {
+      save: async (next) => {
+        saved = structuredClone(next);
+      },
+      sleep: async () => {},
+      request: async (_url, init) => {
+        const ids = JSON.parse(String(init?.body)).units;
+        if ((saved.study!.generationPass || 1) > 1) laterBatch = ids.length;
+        return Response.json({ questions: [] });
+      },
+    },
+  );
+  assert.equal(laterBatch, 20);
+  assert.equal(saved.study!.complete, false);
+});
+
+test('after the first playable buffer, combines up to 40 units without losing queue entries', async () => {
+  const d = prepareStudy(doc, { ...config, count: 100 });
+  let saved = d;
+  const sizes: number[] = [];
+  await processStudy(
+    d,
+    () => {},
+    () => false,
+    {
+      save: async (next) => {
+        saved = structuredClone(next);
+      },
+      sleep: async () => {},
+      request: async (_url, init) => {
+        const body = JSON.parse(String(init?.body));
+        sizes.push(body.units.length);
+        const done = saved.questions.filter(ready).length;
+        return Response.json({
+          questions: saved.questions
+            .filter((q) => !ready(q))
+            .slice(0, body.units.length)
+            .map((q, i) => solved(q, done + i)),
+        });
+      },
+    },
+  );
+  assert.deepEqual(sizes, [20, 40, 40]);
+  assert.equal(saved.questions.filter(ready).length, 100);
+});
+
+test('a failing 40-unit batch stays split across retries and saved resume state', async () => {
+  const d = prepareStudy(doc, { ...config, count: 100 });
+  d.questions = d.questions.map((q, i) => (i < 20 ? solved(q, i) : q));
+  let saved = d;
+  const sizes: number[] = [];
+  await processStudy(
+    d,
+    () => {},
+    () => false,
+    {
+      save: async (next) => {
+        saved = structuredClone(next);
+      },
+      sleep: async () => {},
+      request: async (_url, init) => {
+        const ids = JSON.parse(String(init?.body)).units;
+        sizes.push(ids.length);
+        assert.ok(
+          sizes.length < 12,
+          'split retries must not be merged into the same failing batch',
+        );
+        if (ids.length > 20) return Response.json({ code: 'AI_INVALID' }, { status: 502 });
+        const done = saved.questions.filter(ready).length;
+        return Response.json({
+          questions: saved.questions
+            .filter((q) => !ready(q))
+            .slice(0, ids.length)
+            .map((q, i) => solved(q, done + i)),
+        });
+      },
+    },
+  );
+  assert.deepEqual(sizes.slice(0, 2), [40, 40]);
+  assert.ok(sizes.slice(2).every((n) => n <= 20));
+  assert.equal(saved.study!.generationBatchLimit, 20);
+  assert.equal(saved.questions.filter(ready).length, 100);
 });

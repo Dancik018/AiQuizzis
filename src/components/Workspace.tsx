@@ -786,6 +786,7 @@ export default function Workspace({
                 {scans
                   .filter(
                     (job) =>
+                      job.status !== 'complete' &&
                       !documents.some((d) => d.extractionJob === job.id) &&
                       studyDraft?.extractionJob !== job.id,
                   )

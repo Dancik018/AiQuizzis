@@ -196,3 +196,11 @@ Fără migrare, aplicația păstrează traseul anterior de extragere/OCR în bro
 ### Verificarea pachetului OCR
 
 După `npm run build`, rulează `npm run test:ocr-package`. Testul pornește motorul OCR român/englez într-un director izolat folosind exclusiv fișierele incluse în trasarea rutei de producție, pentru a detecta dependențe omise la deployment.
+
+### Generare accelerată din material
+
+Primele loturi prioritizează pragul de 20 de întrebări pregătite. După acesta, loturile scurte se pot combina până la 40 de fragmente / 24.000 caractere, procesate în două fluxuri de generare și verificare independentă. Fiecare flux primește numai țintele și contextul lor vecin; faptele deja testate sunt transmise compact. Trecerile suplimentare păstrează până la 20 de ținte, fără reducere automată la 5. Erorile împart loturile și persistă limita redusă, astfel încât retry-ul să nu recombine același lot problematic.
+
+Benchmark cu OpenAI pe PDF-ul sintetic de test de 501 pagini: 100/100 întrebări verificate în aproximativ 69 secunde; primele 20 în 15 secunde, excluzând încărcarea, scanarea și latența bazei de date. Nu reprezintă o garanție de timp pentru alte materiale. Pe cursul real de 39 pagini cu cerere de 100, versiunea intermediară a validat 47 întrebări în șase minute, cu primele 20 în două minute; materialele ambigue pot necesita treceri suplimentare și pot susține mai puține întrebări distincte.
+
+Cardurile pentru scanări finalizate nu mai sunt afișate în zona de încărcare. Migrarea `202610030002_pending_scan_limit.sql` exclude scanările complete din limita celor trei scanări neterminate, fără a șterge sursa sau documentele salvate.

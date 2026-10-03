@@ -30,6 +30,7 @@ export type StudyState = {
   analysisVersion?: 1 | 2 | 3;
   generationPass?: number;
   generationConcurrency?: 1 | 2;
+  generationBatchLimit?: 20 | 40;
   pagesScanned?: number;
   wordsScanned?: number;
   failedUnits?: string[][];

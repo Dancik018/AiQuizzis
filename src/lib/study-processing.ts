@@ -81,6 +81,7 @@ export async function processStudy(
   const sourceOrder = studyGenerationOrder(
     studyAnalysis(doc.lines, doc.study.config, doc.study.analysisVersion || 1).units,
   );
+  const sourceLengths = new Map(sourceOrder.map((u) => [u.id, u.text.length]));
   const refill = () => {
     const study = doc.study!;
     if (
@@ -112,7 +113,11 @@ export async function processStudy(
       ...ordered.filter((u) => !promising.has(u.id) && !tested.has(u.id)),
       ...ordered.filter((u) => !promising.has(u.id) && tested.has(u.id)),
     ];
-    study.queue = studyBatches(prioritized, study.config.kind, study.generationPass === 2 ? 10 : 5);
+    study.queue = studyBatches(
+      prioritized,
+      study.config.kind,
+      Math.min(20, study.config.count - doc.questions.filter(ready).length),
+    );
     return study.queue.length > 0;
   };
   refill();
@@ -129,7 +134,24 @@ export async function processStudy(
       await save();
       savedPass = doc.study!.generationPass;
     }
-    const ids = doc.study!.queue[0];
+    const ids = [...doc.study!.queue[0]];
+    let consumed = 1;
+    // Prioritize the first playable buffer, then amortize requests over two 20-item lanes.
+    if (
+      doc.study!.generationBatchLimit !== 20 &&
+      ids.length === 20 &&
+      doc.questions.filter(ready).length >= Math.min(20, doc.study!.config.count)
+    ) {
+      let chars = ids.reduce((n, id) => n + (sourceLengths.get(id) || 0), 0);
+      for (let i = 1; i < doc.study!.queue.length; i++) {
+        const next = doc.study!.queue[i];
+        const extra = next.reduce((n, id) => n + (sourceLengths.get(id) || 0), 0);
+        if (next.length !== 20 || ids.length + next.length > 40 || chars + extra > 24000) break;
+        ids.push(...next);
+        chars += extra;
+        consumed++;
+      }
+    }
     let success = false,
       fatal = false;
     const began = Date.now();
@@ -141,13 +163,13 @@ export async function processStudy(
           body: JSON.stringify({
             documentId: doc.id,
             units: ids,
-            parallel: doc.study!.generationConcurrency !== 1,
+            parallel: ids.length > 20 || doc.study!.generationConcurrency !== 1,
           }),
           signal: AbortSignal.timeout(125000),
         })
         .catch(() => null);
       const result = await response?.json().catch(() => null);
-      const parsed = questionSchema.array().max(20).safeParse(result?.questions);
+      const parsed = questionSchema.array().max(40).safeParse(result?.questions);
       if (response?.ok && parsed.success) {
         const byId = new Map(
           parsed.data
@@ -155,7 +177,7 @@ export async function processStudy(
             .map((q) => [q.id, q]),
         );
         const expected = Math.min(
-          20,
+          40,
           ids.length,
           doc.study!.config.count - doc.questions.filter(ready).length,
         );
@@ -163,7 +185,7 @@ export async function processStudy(
         if (!result.retryUnits?.length && expected >= 8 && byId.size / expected < 0.35)
           doc.study!.generationConcurrency = 1;
         doc.questions = doc.questions.map((q) => (byId.get(q.id) as typeof q) || q);
-        doc.study!.queue.shift();
+        doc.study!.queue.splice(0, consumed);
         const retryUnits = Array.isArray(result.retryUnits)
           ? [
               ...new Set<string>(
@@ -208,7 +230,8 @@ export async function processStudy(
     }
     doc.study!.elapsedMs += Date.now() - began;
     if (!success && !fatal) {
-      doc.study!.queue.shift();
+      doc.study!.generationBatchLimit = 20;
+      doc.study!.queue.splice(0, consumed);
       if (ids.length > 1) {
         const half = Math.ceil(ids.length / 2);
         doc.study!.queue.push(ids.slice(0, half), ids.slice(half));

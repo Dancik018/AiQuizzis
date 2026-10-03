@@ -105,3 +105,41 @@ test('cloud extraction bypasses device parsing and restores a 501-page source af
   expect(steps).toBe(2);
   expect(workerRequested).toBe(false);
 });
+
+test('completed scans stay out of the upload area while interrupted scans remain resumable', async ({
+  page,
+}) => {
+  await page.route('**/api/scan**', (r) =>
+    r.fulfill({
+      json: {
+        available: true,
+        jobs: [
+          {
+            id: '00000000-0000-4000-8000-000000000031',
+            name: 'finished.pdf',
+            size: 1000,
+            extension: 'pdf',
+            study: true,
+            pages: 1,
+            next_page: 2,
+            status: 'complete',
+          },
+          {
+            id: '00000000-0000-4000-8000-000000000032',
+            name: 'interrupted.pdf',
+            size: 1000,
+            extension: 'pdf',
+            study: true,
+            pages: 500,
+            next_page: 101,
+            status: 'processing',
+          },
+        ],
+      },
+    }),
+  );
+  await page.goto('/');
+  await expect(page.getByText('interrupted.pdf', { exact: true })).toBeVisible();
+  await expect(page.getByText('finished.pdf', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Continuă scanarea', exact: true })).toHaveCount(1);
+});

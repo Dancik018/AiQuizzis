@@ -99,6 +99,7 @@ test('durable scan jobs enforce ownership, lease exclusion, recovery and all 501
    grant usage on schema storage to authenticated;grant select,insert,delete on storage.objects to authenticated;`);
     await db.exec(readFileSync('supabase/migrations/202609230001_accounts.sql', 'utf8'));
     await db.exec(readFileSync('supabase/migrations/202610030001_cloud_scanning.sql', 'utf8'));
+    await db.exec(readFileSync('supabase/migrations/202610030002_pending_scan_limit.sql', 'utf8'));
     await db.query('insert into auth.users(id,email) values ($1,$2),($3,$4)', [
       owner,
       'user1@example.test',
@@ -215,6 +216,19 @@ test('durable scan jobs enforce ownership, lease exclusion, recovery and all 501
     assert.equal(
       (await as(owner, 'select * from scan_chunks where job_id=$1', [next])).rows.length,
       2,
+    );
+    for (let i = 0; i < 3; i++) {
+      await db.query(
+        "insert into scan_jobs(user_id,name,size,extension,study,status,pages,next_page) values($1,$2,1000,'pdf',true,'complete',1,2)",
+        [owner, `completed-${i}.pdf`],
+      );
+    }
+    for (let i = 0; i < 3; i++) {
+      await as(owner, "select public.create_scan('unfinished.pdf',1000,'pdf',false)");
+    }
+    await assert.rejects(
+      as(owner, "select public.create_scan('fourth.pdf',1000,'pdf',false)"),
+      /SCAN_LIMIT/,
     );
   } finally {
     await db.close();

@@ -11,10 +11,10 @@ export async function POST(req: Request) {
       req,
       z.object({
         documentId: z.string().min(1).max(100),
-        units: z.array(z.string().max(80)).min(1).max(20),
+        units: z.array(z.string().max(80)).min(1).max(40),
         parallel: z.boolean().optional(),
       }),
-      4000,
+      6000,
     );
     const { document } = await requireDocument(req, data.documentId, data.units.length, context);
     const retryUnits: string[] = [];
