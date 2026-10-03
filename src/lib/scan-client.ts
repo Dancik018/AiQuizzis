@@ -89,7 +89,7 @@ export async function extractUploadedDocument(
   });
   const { Upload } = await import('tus-js-client');
   const signed = new URL(created.uploadURL);
-  const endpoint = new URL('/storage/v1/upload/resumable', signed.origin);
+  const endpoint = new URL('/storage/v1/upload/resumable/sign', signed.origin);
   endpoint.hostname = endpoint.hostname.replace('.supabase.co', '.storage.supabase.co');
   const objectName = decodeURIComponent(
     signed.pathname.split('/object/upload/sign/quiz-sources/')[1],
@@ -97,7 +97,10 @@ export async function extractUploadedDocument(
   await new Promise<void>((resolve, reject) => {
     const upload = new Upload(file, {
       endpoint: endpoint.href,
-      headers: { 'x-signature': signed.searchParams.get('token')! },
+      headers: {
+        'x-signature': signed.searchParams.get('token')!,
+        ...(created.publishableKey ? { apikey: created.publishableKey } : {}),
+      },
       chunkSize: 6 * 1024 * 1024,
       uploadDataDuringCreation: true,
       removeFingerprintOnSuccess: true,

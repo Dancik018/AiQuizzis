@@ -88,7 +88,22 @@ export async function POST(req: Request) {
         await db.rpc('cancel_scan', { job: created.data });
         throw new Error('SCAN_SETUP');
       }
-      return privateJSON({ job: created.data, uploadURL: signed.data.signedUrl });
+      const apiKey = process.env.SUPABASE_PUBLISHABLE_KEY || '';
+      let publicKey = apiKey.startsWith('sb_publishable_');
+      if (!publicKey) {
+        try {
+          publicKey =
+            JSON.parse(Buffer.from(apiKey.split('.')[1] || '', 'base64url').toString()).role ===
+            'anon';
+        } catch {
+          /* Never return secret/service-role keys. */
+        }
+      }
+      return privateJSON({
+        job: created.data,
+        uploadURL: signed.data.signedUrl,
+        ...(publicKey ? { publishableKey: apiKey } : {}),
+      });
     }
     const job = await ownedScan(db, user.id, data.job);
     if (data.action === 'cancel') {

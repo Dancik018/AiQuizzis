@@ -53,6 +53,7 @@ test('cloud extraction bypasses device parsing and restores a 501-page source af
       return r.fulfill({
         json: {
           job: id,
+          publishableKey: 'sb_publishable_fixture',
           uploadURL: `https://fixture.supabase.co/storage/v1/object/upload/sign/quiz-sources/user/${id}/source.pdf?token=temporary-upload`,
         },
       });
@@ -63,7 +64,7 @@ test('cloud extraction bypasses device parsing and restores a 501-page source af
     }
     return r.fulfill({ json: { ok: true } });
   });
-  await page.route('https://fixture.storage.supabase.co/storage/v1/upload/resumable**', (r) =>
+  await page.route('https://fixture.storage.supabase.co/storage/v1/upload/resumable/sign**', (r) =>
     r.fulfill({
       status: 201,
       headers: {
