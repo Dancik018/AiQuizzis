@@ -95,7 +95,8 @@ test('durable scan jobs enforce ownership, lease exclusion, recovery and all 501
    grant usage on schema public,auth to authenticated;grant execute on function auth.uid() to authenticated;
    create schema storage;create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);
    create table storage.objects(name text,bucket_id text);alter table storage.objects enable row level security;
-   create function storage.foldername(text) returns text[] language sql immutable as $$select string_to_array($1,'/')$$;`);
+   create function storage.foldername(text) returns text[] language sql immutable as $$select string_to_array($1,'/')$$;
+   grant usage on schema storage to authenticated;grant select,insert,delete on storage.objects to authenticated;`);
     await db.exec(readFileSync('supabase/migrations/202609230001_accounts.sql', 'utf8'));
     await db.exec(readFileSync('supabase/migrations/202610030001_cloud_scanning.sql', 'utf8'));
     await db.query('insert into auth.users(id,email) values ($1,$2),($3,$4)', [
@@ -175,6 +176,15 @@ test('durable scan jobs enforce ownership, lease exclusion, recovery and all 501
         "select public.create_scan('retry.pdf',1000,'pdf',false)",
       )
     ).rows[0].create_scan;
+    await as(owner, "insert into storage.objects(name,bucket_id) values($1,'quiz-sources')", [
+      `${owner}/${next}/source.pdf`,
+    ]);
+    await assert.rejects(
+      as(other, "insert into storage.objects(name,bucket_id) values($1,'quiz-sources')", [
+        `${owner}/${next}/source.pdf`,
+      ]),
+      /row-level security/,
+    );
     await as(owner, 'select public.claim_scan($1,$2)', [next, token]);
     await as(owner, 'select public.save_scan_chunk($1,$2,1,1,2,$3)', [
       next,

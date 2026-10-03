@@ -33,12 +33,12 @@ create policy scan_chunks_read on public.scan_chunks for select to authenticated
 revoke all on public.scan_jobs,public.scan_chunks from anon,authenticated;
 grant select on public.scan_jobs,public.scan_chunks to authenticated;
 create policy source_read on storage.objects for select to authenticated
- using(bucket_id='quiz-sources' and (storage.foldername(name))[1]=auth.uid()::text and public.account_active());
+ using(bucket_id='quiz-sources' and (storage.foldername(storage.objects.name))[1]=auth.uid()::text and public.account_active());
 create policy source_upload on storage.objects for insert to authenticated
- with check(bucket_id='quiz-sources' and (storage.foldername(name))[1]=auth.uid()::text and public.account_active()
- and exists(select 1 from public.scan_jobs j where j.user_id=auth.uid() and j.id::text=(storage.foldername(name))[2] and j.status='uploading'));
+ with check(bucket_id='quiz-sources' and (storage.foldername(storage.objects.name))[1]=auth.uid()::text and public.account_active()
+ and exists(select 1 from public.scan_jobs j where j.user_id=auth.uid() and j.id::text=(storage.foldername(storage.objects.name))[2] and j.status='uploading'));
 create policy source_delete on storage.objects for delete to authenticated
- using(bucket_id='quiz-sources' and (storage.foldername(name))[1]=auth.uid()::text and public.account_active());
+ using(bucket_id='quiz-sources' and (storage.foldername(storage.objects.name))[1]=auth.uid()::text and public.account_active());
 create function public.create_scan(file_name text,file_size integer,file_extension text,study_mode boolean)
 returns uuid language plpgsql security definer set search_path='' as $$
 declare actor uuid:=auth.uid(); p public.profiles; job uuid;
