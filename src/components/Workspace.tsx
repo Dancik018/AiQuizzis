@@ -847,6 +847,7 @@ export default function Workspace({
                             </div>
                             <progress value={accepted} max={doc.study.config.count} />
                             <p>
+                              {doc.study.pagesScanned ?? doc.pages} pagini scanate integral ·{' '}
                               {doc.study.topics} secțiuni · {doc.study.attempted} fragmente
                               analizate · {Math.round(doc.study.elapsedMs / 1000)} secunde de
                               procesare

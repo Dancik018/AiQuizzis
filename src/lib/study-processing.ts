@@ -1,3 +1,4 @@
+import { coverageOrder, studyBatches } from './study-material';
 import { accountFetch, putDocument } from './storage';
 import { ready, questionSchema, type DocumentSet } from './model';
 import { studyAnalysis, studyPlaceholders, type StudyConfig } from './study';
@@ -5,24 +6,15 @@ export function prepareStudy(doc: DocumentSet, config: StudyConfig): DocumentSet
   const a = studyAnalysis(doc.lines, config);
   if (config.count < 1 || config.count > a.maximum || config.count > 200)
     throw new Error(`Alege între 1 și ${a.maximum} întrebări.`);
-  // Spread the first pass over all selected pages, then visit the remaining units.
-  const indices = new Set(
-    Array.from({ length: Math.min(config.count, a.units.length) }, (_, i) =>
-      Math.floor((i * a.units.length) / Math.min(config.count, a.units.length)),
-    ),
-  );
-  const units = [
-    ...a.units.filter((_, i) => indices.has(i)),
-    ...a.units.filter((_, i) => !indices.has(i)),
-  ];
-  const queue = Array.from({ length: Math.ceil(units.length / 20) }, (_, i) =>
-    units.slice(i * 20, i * 20 + 20).map((u) => u.id),
-  );
+  const queue = studyBatches(coverageOrder(a.units), config.kind, config.count);
   return {
     ...doc,
     questions: studyPlaceholders(doc, config),
     analysisComplete: true,
     study: {
+      analysisVersion: 2,
+      pagesScanned: new Set(doc.lines.map((l) => l.page)).size,
+      wordsScanned: a.words,
       config,
       maximum: a.maximum,
       recommended: a.recommended,

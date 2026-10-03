@@ -9,6 +9,7 @@ export const questionSchema = z.object({
     .optional(),
   difficulty: z.enum(['easy', 'medium', 'hard']).optional(),
   sourceSection: z.string().max(300).optional(),
+  sourceUnitId: z.string().max(80).optional(),
   sourceQuote: z.string().max(4000).optional(),
   conceptKey: z.string().max(300).optional(),
   documentId: z.string().max(100),

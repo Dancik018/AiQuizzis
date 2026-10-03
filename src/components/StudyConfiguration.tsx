@@ -48,7 +48,8 @@ export default function StudyConfiguration({
         <p>{doc.name}</p>
         <div className="notice" role="status">
           Document analizat · {a.usefulPages} pagini cu text util · {a.topics} secțiuni ·{' '}
-          {a.concepts} fragmente educaționale candidate.
+          {a.concepts} fragmente educaționale candidate · {a.words.toLocaleString('ro-RO')} cuvinte
+          utile.
           <br />
           Recomandat: <strong>{a.recommended}</strong> întrebări · Maximum estimat:{' '}
           <strong>{a.maximum}</strong>.

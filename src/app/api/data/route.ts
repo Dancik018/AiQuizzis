@@ -58,8 +58,13 @@ export async function POST(req: Request) {
     if (data.kind === 'documents' && data.data.questions.some((q) => q.documentId !== data.data.id))
       throw new Error('INVALID_DATA');
     if (data.kind === 'documents' && data.data.study) {
-      const state = z.object({ config: studyConfigSchema }).parse(data.data.study);
-      const capacity = studyAnalysis(data.data.lines, state.config);
+      const state = z
+        .object({
+          config: studyConfigSchema,
+          analysisVersion: z.union([z.literal(1), z.literal(2)]).optional(),
+        })
+        .parse(data.data.study);
+      const capacity = studyAnalysis(data.data.lines, state.config, state.analysisVersion || 1);
       if (
         state.config.count > capacity.maximum ||
         data.data.questions.length > state.config.count ||

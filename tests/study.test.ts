@@ -134,9 +134,9 @@ test('independent verification controls acceptance and stable IDs', async () => 
           }
         : {
             checks: [
-              { index: 0, valid: true, confidence: 0.97 },
-              { index: 1, valid: false, confidence: 0.5 },
-              { index: 2, valid: true, confidence: 0.97 },
+              { index: 0, valid: true, confidence: 0.97, correctIndex: 0 },
+              { index: 1, valid: false, confidence: 0.5, correctIndex: null },
+              { index: 2, valid: true, confidence: 0.97, correctIndex: 0 },
             ],
           },
     );
@@ -227,4 +227,36 @@ test('quota failure preserves the exact pending queue for resume', async () => {
   assert.deepEqual(saved.study!.queue, d.study!.queue);
   assert.equal(saved.study!.complete, false);
   assert.equal(saved.status, 'partial');
+});
+
+test('choice verification is blind and rejects a confident disagreement', async () => {
+  const d = prepareStudy(doc, config),
+    unit = studyAnalysis(lines).units[0];
+  const ai: typeof structuredAI = async (schema, name, messages) => {
+    if (name === 'study_questions')
+      return schema.parse({
+        questions: [
+          {
+            unitId: unit.id,
+            concept: 'Portul P0',
+            question: 'Care este portul protocolului P0?',
+            kind: 'multiple_choice',
+            difficulty: 'medium',
+            options: ['1000', '2', '3', '4'],
+            correctIndex: 0,
+            answer: '1000',
+            quote: unit.text,
+          },
+        ],
+      });
+    const payload = JSON.parse(messages[1].content);
+    assert.ok(
+      payload.questions.every(
+        (q: Record<string, unknown>) =>
+          !('answer' in q) && !('correctIndex' in q) && !('explanation' in q),
+      ),
+    );
+    return schema.parse({ checks: [{ index: 0, valid: true, confidence: 1, correctIndex: 1 }] });
+  };
+  assert.deepEqual(await generateStudy(d, [unit.id], ai), []);
 });

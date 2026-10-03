@@ -1,5 +1,7 @@
+import { legacyStudyMaterial } from './study-legacy';
+import { segmentStudy } from './study-material';
 import { z } from 'zod';
-import { normalize, ready, type DocumentSet, type Question, type TextLine } from './model';
+import { ready, type DocumentSet, type Question, type TextLine } from './model';
 export const studyKinds = [
   'multiple_choice',
   'true_false',
@@ -25,6 +27,9 @@ export type StudyUnit = {
   text: string;
 };
 export type StudyState = {
+  analysisVersion?: 1 | 2;
+  pagesScanned?: number;
+  wordsScanned?: number;
   failedUnits?: string[][];
   config: StudyConfig;
   maximum: number;
@@ -38,66 +43,14 @@ export type StudyState = {
   elapsedMs: number;
   attempted: number;
 };
-export function studyMaterial(lines: TextLine[]) {
-  const sections: { id: string; title: string; page: number }[] = [];
-  const units: StudyUnit[] = [];
-  const seen = new Set<string>();
-  const sizes = lines
-    .map((l) => l.fontSize || 0)
-    .filter((n) => n > 0)
-    .sort((a, b) => a - b);
-  const bodySize = sizes[Math.floor(sizes.length / 2)] || 12;
-  let section = { id: 'section-0', title: 'Introducere', page: 1 };
-  sections.push(section);
-  let buffer = '',
-    page = 1;
-  const flush = () => {
-    const text = buffer.trim();
-    buffer = '';
-    if (text.split(/\s+/).length < 8 || !/[\p{L}]/u.test(text)) return;
-    const key = normalize(text);
-    if (seen.has(key)) return;
-    seen.add(key);
-    units.push({
-      id: `unit-${units.length}`,
-      sectionId: section.id,
-      section: section.title,
-      page,
-      text,
-    });
-  };
-  for (const line of lines) {
-    const text = line.text.trim();
-    if (!text || /^\s*(?:pagina\s*)?\d+\s*$/i.test(text)) continue;
-    if (
-      line.kind === 'heading' ||
-      (text.length < 130 && !/[.!?]$/.test(text) && (line.fontSize || 0) >= bodySize * 1.2) ||
-      (text.length < 130 &&
-        /^(?:capitol|lecția|lectia|secțiunea|sectiunea|unitatea)\s+[\dIVX]+/i.test(text))
-    ) {
-      flush();
-      section = { id: `section-${sections.length}`, title: text, page: line.page };
-      sections.push(section);
-      continue;
-    }
-    if (page !== line.page) {
-      flush();
-      page = line.page;
-    }
-    for (const sentence of text.match(/[^.!?]+(?:[.!?]+|$)/g) || [text]) {
-      if (buffer.length + sentence.length > 1200) flush();
-      buffer += ' ' + sentence;
-      if (buffer.split(/\s+/).length >= 30) flush();
-    }
-  }
-  flush();
-  return { sections: sections.filter((s) => units.some((u) => u.sectionId === s.id)), units };
-}
+export const studyMaterial = (lines: TextLine[], version: 1 | 2 = 2) =>
+  version === 1 ? legacyStudyMaterial(lines) : segmentStudy(lines);
 export function studyAnalysis(
   lines: TextLine[],
   selection?: Pick<StudyConfig, 'sections' | 'pageFrom' | 'pageTo'>,
+  version: 1 | 2 = 2,
 ) {
-  const all = studyMaterial(lines);
+  const all = studyMaterial(lines, version);
   const units = all.units.filter(
     (u) =>
       !selection ||
@@ -122,7 +75,14 @@ export function studyAnalysis(
             : equivalentPages <= 20
               ? 150
               : 200;
-  const maximum = Math.min(200, pageLimit, units.length, Math.floor(words / 18));
+  const maximum = Math.min(
+    200,
+    pageLimit,
+    units.length,
+    version === 1
+      ? Math.floor(words / 18)
+      : Math.max(units.filter((u) => /[:=]/.test(u.text)).length, Math.floor(words / 18)),
+  );
   const recommended = Math.min(maximum, Math.max(1, Math.floor((maximum * 0.7) / 5) * 5));
   // Round-robin across sections and pages prevents early batches concentrating on the beginning.
   const groups = new Map<string, StudyUnit[]>();
