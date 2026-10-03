@@ -1,5 +1,6 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
+import { hydrateSource } from './scan-storage';
 import { accountErrors } from './account-errors';
 export type Account = {
   id: string;
@@ -76,5 +77,8 @@ export async function requireDocument(
   if (result.error || !result.data) throw new Error('DOCUMENT_NOT_FOUND');
   const claim = await context.db.rpc('claim_ai', { doc_id: id, units });
   checkDatabase(claim.error);
-  return { ...context, document: result.data.data };
+  return {
+    ...context,
+    document: await hydrateSource(context.db, context.user.id, result.data.data),
+  };
 }

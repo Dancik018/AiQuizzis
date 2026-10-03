@@ -19,6 +19,7 @@ export async function GET() {
     batchSize: settings.batchSize,
     minReady: settings.minReady,
     ocr: true,
-    ocrProvider: 'browser',
+    ocrProvider: 'server',
+    maxFileSize: 50 * 1024 * 1024,
   });
 }

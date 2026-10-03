@@ -69,6 +69,7 @@ export type TextLine = {
   numbered?: boolean;
 };
 export type DocumentSet = {
+  extractionJob?: string;
   study?: import('./study').StudyState;
   id: string;
   name: string;

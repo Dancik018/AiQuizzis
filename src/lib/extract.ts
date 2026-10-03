@@ -2,7 +2,7 @@ import { unzipSync, strFromU8 } from 'fflate';
 import type { TextLine } from './model';
 import { createBrowserOcr } from './ocr';
 
-export const MAX_FILE_SIZE = 30 * 1024 * 1024;
+export const MAX_FILE_SIZE = 50 * 1024 * 1024;
 export function validateFile(file: Pick<File, 'name' | 'type' | 'size'>) {
   const ext = file.name.toLowerCase().split('.').pop();
   if (!['pdf', 'docx'].includes(ext || '')) throw new Error('Selectează un document PDF sau DOCX.');
@@ -13,20 +13,21 @@ export function validateFile(file: Pick<File, 'name' | 'type' | 'size'>) {
   if (file.type && file.type !== expected && file.type !== 'application/octet-stream')
     throw new Error('Tipul fișierului nu corespunde extensiei.');
   if (!file.size) throw new Error('Documentul este gol.');
-  if (file.size > MAX_FILE_SIZE) throw new Error('Documentul depășește limita de 30 MB.');
+  if (file.size > MAX_FILE_SIZE) throw new Error('Documentul depășește limita de 50 MB.');
   return ext as 'pdf' | 'docx';
 }
 const ns = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const elements = (node: Element | Document, name: string) =>
   Array.from(node.getElementsByTagNameNS(ns, name));
 const val = (node: Element | undefined, attr = 'val') => node?.getAttributeNS(ns, attr) || '';
-function parseXml(text: string) {
+function parseXml(text: string, parser?: DOMParser) {
   if (/<!DOCTYPE|<!ENTITY/i.test(text)) throw new Error('Document XML nesigur.');
-  const doc = new DOMParser().parseFromString(text, 'application/xml');
-  if (doc.querySelector('parsererror')) throw new Error('Structura DOCX este deteriorată.');
+  const doc = (parser || new DOMParser()).parseFromString(text, 'application/xml');
+  if (doc.getElementsByTagName('parsererror').length)
+    throw new Error('Structura DOCX este deteriorată.');
   return doc;
 }
-export function extractDocx(buffer: Uint8Array): TextLine[] {
+export function extractDocx(buffer: Uint8Array, parser?: DOMParser): TextLine[] {
   if (buffer[0] !== 80 || buffer[1] !== 75) throw new Error('Fișierul nu este un DOCX valid.');
   let expanded = 0;
   const zip = unzipSync(buffer, {
@@ -39,9 +40,9 @@ export function extractDocx(buffer: Uint8Array): TextLine[] {
     },
   });
   if (!zip['word/document.xml']) throw new Error('Arhiva nu conține un document Word valid.');
-  const doc = parseXml(strFromU8(zip['word/document.xml']));
+  const doc = parseXml(strFromU8(zip['word/document.xml']), parser);
   const numbering = zip['word/numbering.xml']
-    ? parseXml(strFromU8(zip['word/numbering.xml']))
+    ? parseXml(strFromU8(zip['word/numbering.xml']), parser)
     : null;
   const counters = new Map<string, number>();
   let page = 1;
@@ -49,7 +50,8 @@ export function extractDocx(buffer: Uint8Array): TextLine[] {
     const runs = elements(p, 'r');
     let text = runs
       .map((r) =>
-        Array.from(r.children)
+        Array.from(r.childNodes)
+          .filter((n): n is Element => n.nodeType === 1)
           .map((n) =>
             n.localName === 't'
               ? n.textContent
@@ -87,11 +89,11 @@ export function extractDocx(buffer: Uint8Array): TextLine[] {
     }
     const style = val(elements(p, 'pStyle')[0]);
     const colored = runs.map((r) => val(elements(r, 'color')[0])).find((c) => c && c !== 'auto');
-    let ancestor = p.parentElement;
+    let ancestor = p.parentNode as Element | null;
     let inTable = false;
     while (ancestor) {
       if (ancestor.localName === 'tbl') inTable = true;
-      ancestor = ancestor.parentElement;
+      ancestor = ancestor.parentNode as Element | null;
     }
     const line: TextLine = {
       text,
@@ -110,6 +112,64 @@ export function extractDocx(buffer: Uint8Array): TextLine[] {
       elements(p, 'lastRenderedPageBreak').length;
     return text.split('\n').map((t) => ({ ...line, text: t }));
   });
+}
+
+export function pdfTextLines(
+  items: import('pdfjs-dist/types/src/display/api').TextItem[],
+  operators: { fnArray: number[]; argsArray: unknown[][] },
+  ops: typeof import('pdfjs-dist').OPS,
+  n: number,
+): TextLine[] {
+  const lines: TextLine[] = [];
+  const colorByText = new Map<string, string>();
+  let color = '#000000';
+  const stack: string[] = [];
+  for (let j = 0; j < operators.fnArray.length; j++) {
+    const fn = operators.fnArray[j],
+      args = operators.argsArray[j];
+    if (fn === ops.save) stack.push(color);
+    if (fn === ops.restore) color = stack.pop() || '#000000';
+    if (fn === ops.setFillRGBColor)
+      color =
+        typeof args[0] === 'string' ? args[0] : `rgb(${Array.from(args as number[]).join(',')})`;
+    if (fn === ops.setFillGray) color = `gray(${args[0]})`;
+    if (fn === ops.showText && Array.isArray(args[0])) {
+      const text = args[0]
+        .map((g: { unicode?: string } | number) => (typeof g === 'object' ? g.unicode || '' : ''))
+        .join('');
+      colorByText.set(text.trim(), color);
+    }
+  }
+  // Preserve PDF content stream order; line boundaries use geometry and explicit EOL.
+  let line: TextLine | null = null;
+  for (const item of items) {
+    const x = item.transform[4],
+      y = item.transform[5];
+    if (line && (Math.abs((line.y || 0) - y) > 3 || x < (line.x || 0) - 10)) {
+      lines.push(line);
+      line = null;
+    }
+    if (!line)
+      line = {
+        text: '',
+        page: n,
+        x,
+        y,
+        font: item.fontName,
+        fontSize: Math.abs(item.transform[3]),
+        color: colorByText.get(item.str.trim()),
+        bold: /bold/i.test(item.fontName),
+        italic: /italic/i.test(item.fontName),
+      };
+    line.text += `${line.text && !line.text.endsWith(' ') ? ' ' : ''}${item.str}`;
+    if (item.hasEOL) {
+      lines.push(line);
+      line = null;
+    }
+  }
+  if (line) lines.push(line);
+
+  return lines;
 }
 
 export type ExtractionProgress = { stage: string; completed: number; total: number };
@@ -204,54 +264,7 @@ export async function extractFile(
         }
       } else {
         const operators = await page.getOperatorList();
-        const colorByText = new Map<string, string>();
-        let color = '#000000';
-        const stack: string[] = [];
-        for (let j = 0; j < operators.fnArray.length; j++) {
-          const fn = operators.fnArray[j],
-            args = operators.argsArray[j];
-          if (fn === pdfjs.OPS.save) stack.push(color);
-          if (fn === pdfjs.OPS.restore) color = stack.pop() || '#000000';
-          if (fn === pdfjs.OPS.setFillRGBColor)
-            color = typeof args[0] === 'string' ? args[0] : `rgb(${Array.from(args).join(',')})`;
-          if (fn === pdfjs.OPS.setFillGray) color = `gray(${args[0]})`;
-          if (fn === pdfjs.OPS.showText && Array.isArray(args[0])) {
-            const text = args[0]
-              .map((g: { unicode?: string } | number) =>
-                typeof g === 'object' ? g.unicode || '' : '',
-              )
-              .join('');
-            colorByText.set(text.trim(), color);
-          }
-        }
-        // Preserve PDF content stream order; line boundaries use geometry and explicit EOL.
-        let line: TextLine | null = null;
-        for (const item of items) {
-          const x = item.transform[4],
-            y = item.transform[5];
-          if (line && (Math.abs((line.y || 0) - y) > 3 || x < (line.x || 0) - 10)) {
-            lines.push(line);
-            line = null;
-          }
-          if (!line)
-            line = {
-              text: '',
-              page: n,
-              x,
-              y,
-              font: item.fontName,
-              fontSize: Math.abs(item.transform[3]),
-              color: colorByText.get(item.str.trim()),
-              bold: /bold/i.test(item.fontName),
-              italic: /italic/i.test(item.fontName),
-            };
-          line.text += `${line.text && !line.text.endsWith(' ') ? ' ' : ''}${item.str}`;
-          if (item.hasEOL) {
-            lines.push(line);
-            line = null;
-          }
-        }
-        if (line) lines.push(line);
+        lines.push(...pdfTextLines(items, operators, pdfjs.OPS, n));
       }
       page.cleanup();
       completedPages++;

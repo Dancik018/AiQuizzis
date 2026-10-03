@@ -53,7 +53,14 @@ function save(kind: 'documents' | 'sessions', data: DocumentSet | QuizSession) {
       const result = await json('/api/data', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ kind, data: snapshot, version: versions.get(key) || 0 }),
+        body: JSON.stringify({
+          kind,
+          data:
+            kind === 'documents' && (snapshot as DocumentSet).extractionJob
+              ? { ...snapshot, lines: [] }
+              : snapshot,
+          version: versions.get(key) || 0,
+        }),
       });
       versions.set(key, result.version);
       if (isNewDocument) window.dispatchEvent(new Event('aiquiz-account-changed'));
@@ -63,6 +70,8 @@ function save(kind: 'documents' | 'sessions', data: DocumentSet | QuizSession) {
 }
 export async function getDocuments(): Promise<DocumentSet[]> {
   const docs = await load<DocumentSet>('documents');
+  const { getScanLines } = await import('./scan-client');
+  for (const doc of docs) if (doc.extractionJob) doc.lines = await getScanLines(doc.extractionJob);
   const repaired = docs.map(repairDocument);
   for (let i = 0; i < docs.length; i++) if (repaired[i] !== docs[i]) await putDocument(repaired[i]);
   return repaired.map((d) => ({ ...d, questions: d.questions.map(sanitizeQuestion) }));

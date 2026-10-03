@@ -17,10 +17,12 @@ export default function PrivacyPage() {
         </p>
         <h2>Documente și inteligență artificială</h2>
         <p>
-          PDF și DOCX sunt citite în browser. Fișierul original nu este încărcat pe serverul
-          aplicației. Textul extras și rezultatele sunt salvate în cont. Întrebările și răspunsurile
-          relevante sunt trimise serviciului OpenAI pentru rezolvare, generarea variantelor și
-          verificare. Nu încărca documente pe care nu ai dreptul să le prelucrezi.
+          PDF și DOCX sunt încărcate temporar în spațiul privat Supabase pentru scanare și OCR pe
+          server. Copia originală este eliminată după finalizarea scanării; textul extras,
+          metadatele paginilor și rezultatele sunt salvate în cont. Scanările întrerupte păstrează
+          temporar fișierul pentru reluare și pot fi eliminate din interfață. Întrebările și
+          răspunsurile relevante sunt trimise serviciului OpenAI pentru rezolvare, generarea
+          variantelor și verificare. Nu încărca documente pe care nu ai dreptul să le prelucrezi.
         </p>
         <h2>Conectare cu Google</h2>
         <p>

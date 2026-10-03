@@ -1,9 +1,11 @@
 {
   "dependencies": {
+    "@napi-rs/canvas": "^1.0.10",
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.117.1",
     "@tesseract.js-data/eng": "^1.0.0",
     "@tesseract.js-data/ron": "^1.0.0",
+    "@xmldom/xmldom": "^0.9.12",
     "fflate": "^0.8.3",
     "idb": "^8.0.3",
     "lucide-react": "^1.47.0",
@@ -13,6 +15,7 @@
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "tesseract.js": "^7.0.0",
+    "tus-js-client": "^4.3.1",
     "zod": "^4.6.5"
   },
   "devDependencies": {

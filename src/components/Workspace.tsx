@@ -37,6 +37,8 @@ import { processDocument, analyzeStructure } from '@/lib/processing';
 import StudyConfiguration from './StudyConfiguration';
 import { studyReady, studyAnalysis, type StudyConfig } from '@/lib/study';
 import { prepareStudy, processStudy } from '@/lib/study-processing';
+import { extractUploadedDocument, scanJobs, continueScan, cancelScan } from '@/lib/scan-client';
+import type { ScanJob } from '@/lib/scan-storage';
 import type { ExtractionProgress } from '@/lib/extract';
 import type { SolverProfile } from '@/lib/batching';
 const QuestionReview = dynamic(() => import('@/components/QuestionReview'));
@@ -57,6 +59,7 @@ export default function Workspace({
   accountId: string;
   onRequireAccount?: () => void;
 }) {
+  const [scans, setScans] = useState<ScanJob[]>([]);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [studyDraft, setStudyDraft] = useState<DocumentSet | null>(null);
   const [documents, setDocuments] = useState<DocumentSet[]>([]);
@@ -159,6 +162,10 @@ export default function Workspace({
           ),
         )
         .finally(() => setLoaded(true));
+    if (accountId)
+      void scanJobs()
+        .then((result) => setScans(result.jobs))
+        .catch(() => {});
     fetch('/api/config')
       .then((r) => r.json())
       .then((value) => {
@@ -251,19 +258,23 @@ export default function Workspace({
     setError('');
     setProgress({ stage: 'Validare document', completed: 0, total: 1 });
     try {
-      const { extractFile } = await import('@/lib/extract');
+      // eslint-disable-next-line react-hooks/purity -- Measurement inside the upload event handler.
       const extractionStarted = performance.now();
-      const extracted = await extractFile(file, setProgress, { studyMaterial: mode === 'study' });
-      const id = uid();
+      const extracted = await extractUploadedDocument(file, setProgress, {
+        studyMaterial: mode === 'study',
+      });
+      const id = extracted.extractionJob || uid();
       const detected = detectQuestions(extracted.lines, id, file.name);
       const doc: DocumentSet = {
         id,
         name: file.name,
         createdAt: new Date().toISOString(),
         ...detected,
+        extractionJob: extracted.extractionJob,
         lines: extracted.lines,
         pages: extracted.pages,
         status: 'extracted',
+        // eslint-disable-next-line react-hooks/purity -- Event handler completion time.
         extractionMs: Math.round(performance.now() - extractionStarted),
       };
       if (mode === 'study') {
@@ -287,6 +298,56 @@ export default function Workspace({
       setBusy(false);
       setProgress(null);
       if (input.current) input.current.value = '';
+      void scanJobs()
+        .then((result) => setScans(result.jobs))
+        .catch(() => {});
+    }
+  };
+  const resumeScan = async (job: ScanJob) => {
+    if (busy) return;
+    setBusy(true);
+    setError('');
+    try {
+      // eslint-disable-next-line react-hooks/purity -- Measurement inside the resume event handler.
+      const started = performance.now();
+      const extracted = await continueScan(job, setProgress);
+      const detected = detectQuestions(extracted.lines, job.id, job.name);
+      const doc: DocumentSet = {
+        id: job.id,
+        name: job.name,
+        createdAt: new Date().toISOString(),
+        ...detected,
+        ...extracted,
+        status: 'extracted',
+        // eslint-disable-next-line react-hooks/purity -- Event handler completion time.
+        extractionMs: Math.round(performance.now() - started),
+      };
+      if (job.study) setStudyDraft({ ...doc, questions: [], rejected: 0, duplicates: 0 });
+      else {
+        await updateDocument(doc);
+        setSelected([doc.id]);
+        if (services.ai && doc.questions.length) await solve(doc);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Scanarea nu a putut continua.');
+    } finally {
+      setBusy(false);
+      setProgress(null);
+      void scanJobs()
+        .then((result) => setScans(result.jobs))
+        .catch(() => {});
+    }
+  };
+  const removeScan = async (job: ScanJob) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await cancelScan(job.id);
+      setScans((old) => old.filter((j) => j.id !== job.id));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Scanarea nu a putut fi eliminată.');
+    } finally {
+      setBusy(false);
     }
   };
   const rescanStudy = async (doc: DocumentSet, file?: File) => {
@@ -305,8 +366,7 @@ export default function Workspace({
     setBusy(true);
     setError('');
     try {
-      const { extractFile } = await import('@/lib/extract');
-      const extracted = await extractFile(file, setProgress, { studyMaterial: true });
+      const extracted = await extractUploadedDocument(file, setProgress, { studyMaterial: true });
       const analysis = studyAnalysis(extracted.lines);
       const config = { ...doc.study.config, sections: analysis.sections.map((s) => s.id) };
       const updated = prepareStudy({ ...doc, ...extracted }, config);
@@ -721,8 +781,38 @@ export default function Workspace({
                 <div className="upload-meta">
                   <span>PDF</span>
                   <span>DOCX</span>
-                  <i /> Maximum 30 MB · OCR gratuit pentru PDF scanat
+                  <i /> Maximum 50 MB · PDF și DOCX
                 </div>
+                {scans
+                  .filter(
+                    (job) =>
+                      !documents.some((d) => d.extractionJob === job.id) &&
+                      studyDraft?.extractionJob !== job.id,
+                  )
+                  .map((job) => (
+                    <div className="extraction-progress" key={job.id}>
+                      <div>
+                        <b>{job.name}</b>
+                        <span>
+                          {job.status === 'complete'
+                            ? 'Scanare finalizată'
+                            : `${Math.max(0, job.next_page - 1)} / ${job.pages || '…'} pagini`}
+                        </span>
+                      </div>
+                      <p>
+                        Progresul este salvat în cont. Poți continua fără să scanezi din nou
+                        paginile finalizate.
+                      </p>
+                      <div className="document-actions">
+                        <button disabled={busy} onClick={() => void resumeScan(job)}>
+                          Continuă scanarea
+                        </button>
+                        <button disabled={busy} onClick={() => void removeScan(job)}>
+                          Elimină scanarea
+                        </button>
+                      </div>
+                    </div>
+                  ))}
                 {progress && !processingId && (
                   <div className="extraction-progress" role="status">
                     <div>
@@ -746,8 +836,8 @@ export default function Workspace({
                   Generează variante pentru întrebările fără opțiuni
                 </label>
                 <span>
-                  <ShieldCheck size={14} /> Fișierele rămân locale. Textul întrebărilor este trimis
-                  serviciului AI.
+                  <ShieldCheck size={14} /> Documentele sunt procesate securizat în cont.
+                  Fragmentele necesare sunt trimise serviciului AI.
                 </span>
               </div>
               {!services.ai && (
@@ -1104,6 +1194,9 @@ export default function Workspace({
                 onClick={() => {
                   setPendingFile(null);
                   if (input.current) input.current.value = '';
+                  void scanJobs()
+                    .then((result) => setScans(result.jobs))
+                    .catch(() => {});
                 }}
               >
                 ×

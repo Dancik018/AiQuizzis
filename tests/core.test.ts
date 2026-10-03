@@ -88,7 +88,7 @@ test('upload validation rejects extension, MIME, empty and oversized files', () 
     { name: 'x.exe', type: '', size: 50 },
     { name: 'x.pdf', type: 'text/html', size: 50 },
     { name: 'x.docx', type: '', size: 0 },
-    { name: 'x.pdf', type: '', size: 32 * 1024 * 1024 },
+    { name: 'x.pdf', type: '', size: 51 * 1024 * 1024 },
   ])
     assert.throws(() => validateFile(file));
   assert.equal(validateFile({ name: 'x.PDF', type: 'application/pdf', size: 100 }), 'pdf');

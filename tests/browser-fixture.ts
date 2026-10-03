@@ -29,6 +29,7 @@ export const test = base.extend<{ documentMode: 'questions' | 'study' }>({
     await page.route('**/api/auth', (r) =>
       r.fulfill({ json: { configured: true, google: false } }),
     );
+    await page.route('**/api/scan**', (r) => r.fulfill({ json: { available: false, jobs: [] } }));
     const versions = new Map<string, number>();
     await page.route('**/api/data**', async (r) => {
       const method = r.request().method();
