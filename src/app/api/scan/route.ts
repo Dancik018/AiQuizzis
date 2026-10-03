@@ -197,6 +197,17 @@ export async function POST(req: Request) {
   }
 }
 function scanError(e: unknown) {
+  // Only runtime/packaging diagnostics are logged; document text and auth errors stay private.
+  if (
+    e instanceof Error &&
+    /^(Setting up fake worker failed|Cannot find module|ENOENT|The API version|Promise.withResolvers)/.test(
+      e.message,
+    )
+  ) {
+    console.error('scan runtime', e.name, e.message.slice(0, 500));
+  } else if (e instanceof Error) {
+    console.error('scan failure', e.name, e.stack?.split('\n').slice(1, 4).join('\n'));
+  }
   const code = e instanceof Error ? e.message : '';
   const messages: Record<string, string> = {
     SCAN_SETUP: 'Scanarea pe server trebuie activată în Supabase. Contactează administratorul.',

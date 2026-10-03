@@ -1,5 +1,6 @@
 import { createRequire } from 'node:module';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { createCanvas, DOMMatrix, ImageData, Path2D } from '@napi-rs/canvas';
 import { DOMParser } from '@xmldom/xmldom';
 import { extractDocx, pdfTextLines } from './extract';
@@ -26,6 +27,9 @@ export async function openServerDocument(bytes: Uint8Array, extension: 'pdf' | '
   Object.assign(globalThis, { DOMMatrix, ImageData, Path2D });
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
   const pdfRoot = path.dirname(require.resolve('pdfjs-dist/package.json'));
+  pdfjs.GlobalWorkerOptions.workerSrc = pathToFileURL(
+    path.join(pdfRoot, 'legacy/build/pdf.worker.mjs'),
+  ).href;
   const task = pdfjs.getDocument({
     data: bytes.slice(),
     useSystemFonts: false,
