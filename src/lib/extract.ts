@@ -116,6 +116,7 @@ export type ExtractionProgress = { stage: string; completed: number; total: numb
 export async function extractFile(
   file: File,
   progress: (p: ExtractionProgress) => void,
+  options: { studyMaterial?: boolean } = {},
 ): Promise<{ lines: TextLine[]; pages: number }> {
   const ext = validateFile(file);
   const bytes = new Uint8Array(await file.arrayBuffer());
@@ -142,12 +143,18 @@ export async function extractFile(
       const items = content.items.filter(
         (i): i is import('pdfjs-dist/types/src/display/api').TextItem => 'str' in i,
       );
-      if (
-        items
-          .map((i) => i.str)
-          .join('')
-          .replace(/\s/g, '').length < 15
-      ) {
+      const selectableText = items
+        .map((i) => i.str)
+        .join(' ')
+        .trim();
+      const textLength = selectableText.replace(/\s/g, '').length;
+      // Slides may have a selectable title over a rasterized lesson or diagram.
+      const sparseOperators =
+        options.studyMaterial && textLength < 250 ? await page.getOperatorList() : null;
+      const hasImage = sparseOperators?.fnArray.some((fn) =>
+        [pdfjs.OPS.paintImageXObject, pdfjs.OPS.paintInlineImageXObject].includes(fn),
+      );
+      if (textLength < 15 || (options.studyMaterial && textLength < 250 && hasImage)) {
         progress({ stage: `OCR — pagina ${n}`, completed: n - 1, total: pdf.numPages });
         const original = page.getViewport({ scale: 1 });
         const viewport = page.getViewport({
@@ -172,6 +179,11 @@ export async function extractFile(
             }),
           );
           lines.push(...text.split('\n').map((text) => ({ text, page: n })));
+          // Keep exact selectable statements when OCR misreads or omits them.
+          const recognized = text.toLowerCase().replace(/\s+/g, ' ');
+          for (const item of items)
+            if (item.str.trim() && !recognized.includes(item.str.trim().toLowerCase()))
+              lines.push({ text: item.str, page: n });
         } finally {
           canvas.width = 0;
           canvas.height = 0;

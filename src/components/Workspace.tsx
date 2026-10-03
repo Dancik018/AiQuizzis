@@ -35,7 +35,7 @@ import { detectQuestions, combineQuestions } from '@/lib/detection';
 import { createQuiz, hydrateQuiz, quizCandidate, quizPriority, results } from '@/lib/quiz';
 import { processDocument, analyzeStructure } from '@/lib/processing';
 import StudyConfiguration from './StudyConfiguration';
-import { studyReady, type StudyConfig } from '@/lib/study';
+import { studyReady, studyAnalysis, type StudyConfig } from '@/lib/study';
 import { prepareStudy, processStudy } from '@/lib/study-processing';
 import type { ExtractionProgress } from '@/lib/extract';
 import type { SolverProfile } from '@/lib/batching';
@@ -253,7 +253,7 @@ export default function Workspace({
     try {
       const { extractFile } = await import('@/lib/extract');
       const extractionStarted = performance.now();
-      const extracted = await extractFile(file, setProgress);
+      const extracted = await extractFile(file, setProgress, { studyMaterial: mode === 'study' });
       const id = uid();
       const detected = detectQuestions(extracted.lines, id, file.name);
       const doc: DocumentSet = {
@@ -287,6 +287,45 @@ export default function Workspace({
       setBusy(false);
       setProgress(null);
       if (input.current) input.current.value = '';
+    }
+  };
+  const rescanStudy = async (doc: DocumentSet, file?: File) => {
+    if (!file || !doc.study || busy) return;
+    if (file.name !== doc.name) {
+      setError('Selectează același fișier pentru a păstra întrebările și progresul.');
+      return;
+    }
+    const old = studyAnalysis(doc.lines, undefined, doc.study.analysisVersion || 1);
+    if (!old.sections.every((s) => doc.study!.config.sections.includes(s.id))) {
+      setError(
+        'Rescanarea completă este disponibilă pentru documentele cu toate secțiunile selectate. Poți continua analiza selecției existente.',
+      );
+      return;
+    }
+    setBusy(true);
+    setError('');
+    try {
+      const { extractFile } = await import('@/lib/extract');
+      const extracted = await extractFile(file, setProgress, { studyMaterial: true });
+      const analysis = studyAnalysis(extracted.lines);
+      const config = { ...doc.study.config, sections: analysis.sections.map((s) => s.id) };
+      const updated = prepareStudy({ ...doc, ...extracted }, config);
+      updated.questions = doc.questions.map((q) => ({
+        ...q,
+        sourceUnitId: q.sourceQuote
+          ? analysis.units.find((u) => u.page === q.page && u.text.includes(q.sourceQuote!))?.id
+          : undefined,
+      }));
+      await updateDocument(updated);
+      setProgress(null);
+      await solve(updated);
+    } catch (e) {
+      setError(
+        e instanceof Error ? e.message : 'Rescanarea nu a reușit. Documentul salvat este păstrat.',
+      );
+    } finally {
+      setProgress(null);
+      setBusy(false);
     }
   };
   const beginStudy = async (config: StudyConfig) => {
@@ -848,9 +887,9 @@ export default function Workspace({
                             <progress value={accepted} max={doc.study.config.count} />
                             <p>
                               {doc.study.pagesScanned ?? doc.pages} pagini scanate integral ·{' '}
-                              {doc.study.topics} secțiuni · {doc.study.attempted} fragmente
-                              analizate · {Math.round(doc.study.elapsedMs / 1000)} secunde de
-                              procesare
+                              {doc.study.topics} secțiuni · Trecerea {doc.study.generationPass || 1}
+                              /4 · {doc.study.attempted} fragmente analizate ·{' '}
+                              {Math.round(doc.study.elapsedMs / 1000)} secunde de procesare
                             </p>
                             {processingId === doc.id && (
                               <button
@@ -864,8 +903,9 @@ export default function Workspace({
                             )}
                             {doc.study.exhausted && (
                               <p>
-                                Materialul a fost epuizat: {accepted} întrebări distincte au trecut
-                                verificarea. Nu adăugăm întrebări repetitive.
+                                Au fost validate {accepted} din {doc.study.config.count} întrebări.
+                                Poți continua analiza pentru a căuta alte informații distincte;
+                                întrebările deja pregătite sunt păstrate.
                               </p>
                             )}
                           </div>
@@ -971,19 +1011,45 @@ export default function Workspace({
                             Vezi întrebările <ChevronRight size={15} />
                           </button>
                           <div className="button-row">
+                            {doc.study?.exhausted && doc.name.toLowerCase().endsWith('.pdf') && (
+                              <>
+                                <button
+                                  disabled={busy}
+                                  onClick={() =>
+                                    document.getElementById(`rescan-${doc.id}`)?.click()
+                                  }
+                                >
+                                  Rescanează PDF-ul cu OCR
+                                </button>
+                                <input
+                                  id={`rescan-${doc.id}`}
+                                  type="file"
+                                  accept=".pdf,application/pdf"
+                                  disabled={busy}
+                                  style={{ display: 'none' }}
+                                  onChange={(e) => {
+                                    const file = e.target.files?.[0];
+                                    e.target.value = '';
+                                    void rescanStudy(doc, file);
+                                  }}
+                                />
+                              </>
+                            )}
                             {!doc.study && !doc.analysisComplete && (
                               <button disabled={busy || !services.ai} onClick={() => analyze(doc)}>
                                 Caută întrebări suplimentare
                               </button>
                             )}
                             {(doc.study
-                              ? !doc.study.complete
+                              ? !doc.study.complete || doc.study.exhausted
                               : doc.questions.some(needsAnalysis)) && (
                               <button disabled={busy || !services.ai} onClick={() => solve(doc)}>
                                 <Sparkles size={15} />{' '}
-                                {doc.status === 'partial' || doc.status === 'processing'
-                                  ? 'Reîncearcă loturile rămase'
-                                  : 'Rezolvă cu AI'}
+                                {doc.study?.exhausted
+                                  ? 'Continuă până la numărul ales'
+                                  : doc.status === 'partial' || doc.status === 'processing'
+                                    ? 'Reîncearcă loturile rămase'
+                                    : 'Rezolvă cu AI'}
                               </button>
                             )}
                             <button

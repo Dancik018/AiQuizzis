@@ -18,7 +18,7 @@ export function studySentences(text: string) {
 }
 
 // One pass over every extracted line. Formatting is evidence, never a language/content filter.
-export function segmentStudy(lines: TextLine[]) {
+export function segmentStudy(lines: TextLine[], preserveHeadings = false) {
   const units: StudyUnit[] = [],
     sections: { id: string; title: string; page: number }[] = [];
   const sizes = lines
@@ -96,6 +96,10 @@ export function segmentStudy(lines: TextLine[]) {
       section = { id: `section-${sections.length}`, title: text, page: line.page };
       sections.push(section);
       page = line.page;
+      if (preserveHeadings) {
+        buffer = text;
+        flush();
+      }
       continue;
     }
     if (page !== line.page) {

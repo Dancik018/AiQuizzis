@@ -260,3 +260,96 @@ test('choice verification is blind and rejects a confident disagreement', async 
   };
   assert.deepEqual(await generateStudy(d, [unit.id], ai), []);
 });
+
+test('underfilled first pass automatically revisits source and reaches exactly the requested count', async () => {
+  const initial = prepareStudy(doc, { ...config, count: 35 });
+  let saved = structuredClone(initial);
+  let first = true;
+  const passes = new Set<number>();
+  await processStudy(
+    initial,
+    () => {},
+    () => false,
+    {
+      save: async (d) => {
+        saved = structuredClone(d);
+      },
+      sleep: async () => {},
+      request: async () => {
+        const pass = saved.study!.generationPass!;
+        passes.add(pass);
+        const count = pass === 1 ? (first ? 13 : 0) : 5;
+        first = false;
+        const current = saved.questions.filter(ready).length;
+        return Response.json({
+          questions: saved.questions
+            .filter((q) => !ready(q))
+            .slice(0, count)
+            .map((q, i) => solved(q, current + i)),
+        });
+      },
+    },
+  );
+  assert.equal(saved.questions.filter(ready).length, 35);
+  assert.ok(passes.has(2));
+  assert.equal(saved.study!.exhausted, false);
+  assert.equal(saved.study!.complete, true);
+});
+
+test('reanalysis is bounded when source yields nothing and old exhausted documents can resume', async () => {
+  const initial = prepareStudy(doc, { ...config, count: 10 });
+  initial.questions[0] = solved(initial.questions[0], 0);
+  initial.study!.complete = true;
+  initial.study!.exhausted = true;
+  initial.study!.queue = [];
+  let saved = structuredClone(initial);
+  let calls = 0;
+  await processStudy(
+    initial,
+    () => {},
+    () => false,
+    {
+      save: async (d) => {
+        saved = structuredClone(d);
+      },
+      sleep: async () => {},
+      request: async () => {
+        calls++;
+        return Response.json({ questions: [] });
+      },
+    },
+  );
+  assert.ok(calls > 0 && calls < 1000);
+  assert.equal(saved.study!.generationPass, 4);
+  assert.ok(saved.study!.exhausted);
+  assert.deepEqual(saved.questions[0], initial.questions[0]);
+});
+
+test('continuing a v2 result upgrades source analysis without losing accepted answers or selected count', async () => {
+  const initial = prepareStudy(doc, { ...config, count: 35 });
+  initial.study!.analysisVersion = 2;
+  initial.study!.exhausted = true;
+  initial.study!.complete = true;
+  initial.study!.queue = [];
+  initial.questions[0] = solved(initial.questions[0], 0);
+  let saved = initial;
+  await processStudy(
+    initial,
+    () => {},
+    () => true,
+    {
+      save: async (d) => {
+        saved = structuredClone(d);
+      },
+      sleep: async () => {},
+      request: async () => {
+        throw new Error('Stopped processing must not call AI');
+      },
+    },
+  );
+  assert.equal(saved.study!.analysisVersion, 3);
+  assert.equal(saved.study!.config.count, 35);
+  assert.equal(saved.questions[0].correctAnswer, initial.questions[0].correctAnswer);
+  assert.ok(saved.study!.queue.length);
+  assert.equal(saved.study!.complete, false);
+});

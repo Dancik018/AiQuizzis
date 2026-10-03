@@ -27,7 +27,8 @@ export type StudyUnit = {
   text: string;
 };
 export type StudyState = {
-  analysisVersion?: 1 | 2;
+  analysisVersion?: 1 | 2 | 3;
+  generationPass?: number;
   pagesScanned?: number;
   wordsScanned?: number;
   failedUnits?: string[][];
@@ -43,12 +44,12 @@ export type StudyState = {
   elapsedMs: number;
   attempted: number;
 };
-export const studyMaterial = (lines: TextLine[], version: 1 | 2 = 2) =>
-  version === 1 ? legacyStudyMaterial(lines) : segmentStudy(lines);
+export const studyMaterial = (lines: TextLine[], version: 1 | 2 | 3 = 3) =>
+  version === 1 ? legacyStudyMaterial(lines) : segmentStudy(lines, version === 3);
 export function studyAnalysis(
   lines: TextLine[],
   selection?: Pick<StudyConfig, 'sections' | 'pageFrom' | 'pageTo'>,
-  version: 1 | 2 = 2,
+  version: 1 | 2 | 3 = 3,
 ) {
   const all = studyMaterial(lines, version);
   const units = all.units.filter(

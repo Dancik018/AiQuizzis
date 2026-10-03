@@ -104,3 +104,19 @@ test('numeric table values are not mistaken for page numbers or running titles',
   assert.ok(all.includes('25'));
   assert.ok(!all.includes('Pagina'));
 });
+
+test('v3 preserves educational statements formatted as slide headings while v2 IDs remain stable', () => {
+  const slide = [
+    { text: 'Introducere', page: 1, fontSize: 12 },
+    {
+      text: 'Un sistem incorporat reprezintă un dispozitiv realizat prin inginerie',
+      page: 2,
+      fontSize: 32,
+    },
+    { text: 'El combină componente mecanice, electrice și software.', page: 2, fontSize: 12 },
+  ];
+  const legacy = segmentStudy(slide);
+  const enhanced = segmentStudy(slide, true);
+  assert.ok(!legacy.units.some((u) => u.text.includes('reprezintă')));
+  assert.ok(enhanced.units.some((u) => u.text.includes('reprezintă')));
+});

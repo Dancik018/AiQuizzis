@@ -12,7 +12,8 @@ export function prepareStudy(doc: DocumentSet, config: StudyConfig): DocumentSet
     questions: studyPlaceholders(doc, config),
     analysisComplete: true,
     study: {
-      analysisVersion: 2,
+      analysisVersion: 3,
+      generationPass: 1,
       pagesScanned: new Set(doc.lines.map((l) => l.page)).size,
       wordsScanned: a.words,
       config,
@@ -47,14 +48,70 @@ export async function processStudy(
     await transport.save(doc);
     changed(structuredClone(doc));
   };
+  // Old completed documents may be continued without uploading or losing accepted questions.
+  if (doc.study.exhausted) {
+    if (doc.study.analysisVersion !== 3) {
+      const old = studyAnalysis(doc.lines, undefined, doc.study.analysisVersion || 1);
+      const allSelected = old.sections.every((s) => doc.study!.config.sections.includes(s.id));
+      if (allSelected)
+        doc.study.config.sections = studyAnalysis(doc.lines).sections.map((s) => s.id);
+      if (allSelected || doc.study.analysisVersion === 2) {
+        doc.study.analysisVersion = 3;
+        const updated = studyAnalysis(doc.lines, doc.study.config, 3);
+        doc.study.maximum = updated.maximum;
+        doc.study.recommended = updated.recommended;
+        doc.study.concepts = updated.concepts;
+        doc.study.topics = updated.topics;
+        doc.study.usefulPages = updated.usefulPages;
+        doc.study.wordsScanned = updated.words;
+        doc.questions = doc.questions.map((q) => ({
+          ...q,
+          sourceUnitId: q.sourceQuote
+            ? updated.units.find((u) => u.page === q.page && u.text.includes(q.sourceQuote!))?.id
+            : undefined,
+        }));
+      }
+    }
+    doc.study.generationPass = 1;
+    doc.study.queue = [];
+  }
+  doc.study.complete = false;
+  doc.study.exhausted = false;
+  const refill = () => {
+    const study = doc.study!;
+    if (
+      study.queue.length ||
+      (study.failedUnits?.length ?? 0) > 0 ||
+      doc.questions.filter(ready).length >= study.config.count ||
+      (study.generationPass ?? 1) >= 4
+    )
+      return false;
+    study.generationPass = (study.generationPass ?? 1) + 1;
+    const analysis = studyAnalysis(doc.lines, study.config, study.analysisVersion || 1);
+    // Scan all selected material again: previously productive passages may contain other facts.
+    const ordered = coverageOrder(analysis.units);
+    const tested = new Set(doc.questions.filter(ready).map((q) => q.sourceUnitId));
+    const prioritized = [
+      ...ordered.filter((u) => !tested.has(u.id)),
+      ...ordered.filter((u) => tested.has(u.id)),
+    ];
+    study.queue = studyBatches(prioritized, study.config.kind, study.generationPass === 2 ? 10 : 5);
+    return study.queue.length > 0;
+  };
+  refill();
   doc.status = 'processing';
   doc.error = undefined;
   await save();
+  let savedPass = doc.study.generationPass;
   while (
-    doc.study!.queue.length &&
+    (doc.study!.queue.length || refill()) &&
     !stopped() &&
     doc.questions.filter(ready).length < doc.study!.config.count
   ) {
+    if (savedPass !== doc.study!.generationPass) {
+      await save();
+      savedPass = doc.study!.generationPass;
+    }
     const ids = doc.study!.queue[0];
     let success = false,
       fatal = false;
@@ -133,7 +190,7 @@ export async function processStudy(
         : {
             ...q,
             status: 'failed',
-            solveError: 'Materialul selectat nu susține alte întrebări distincte.',
+            solveError: 'Nu au fost validate alte întrebări după trecerile suplimentare.',
           },
     );
     doc.error = undefined;

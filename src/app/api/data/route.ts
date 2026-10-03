@@ -61,7 +61,7 @@ export async function POST(req: Request) {
       const state = z
         .object({
           config: studyConfigSchema,
-          analysisVersion: z.union([z.literal(1), z.literal(2)]).optional(),
+          analysisVersion: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
         })
         .parse(data.data.study);
       const capacity = studyAnalysis(data.data.lines, state.config, state.analysisVersion || 1);
